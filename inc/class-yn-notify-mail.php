@@ -133,6 +133,60 @@ class YN_Notify_Mail {
         return function_exists('hash_equals') ? hash_equals($expected, $cookie) : $expected === $cookie;
     }
 
+    private function auth_fingerprint(array $settings): string {
+        $user_cookie = '';
+        if (function_exists('yourls_cookie_name')) {
+            $cookie_name = yourls_cookie_name();
+            $user_cookie = (string)($_COOKIE[$cookie_name] ?? '');
+        }
+
+        $parts = [
+            (string)($settings['admin_password'] ?? ''),
+            (string)$this->ip(),
+            (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
+            $user_cookie,
+        ];
+        return hash('sha256', implode('|', $parts));
+    }
+
+    private function get_persistent_auth_map(): array {
+        $map = yourls_get_option(YNM_AUTH_OPT_KEY);
+        return is_array($map) ? $map : [];
+    }
+
+    private function set_persistent_auth(bool $enabled, array $settings): void {
+        $map = $this->get_persistent_auth_map();
+        $key = $this->auth_fingerprint($settings);
+
+        if ($enabled) {
+            $map[$key] = time() + 43200; // 12 hours
+        } else {
+            unset($map[$key]);
+        }
+
+        yourls_update_option(YNM_AUTH_OPT_KEY, $map);
+    }
+
+    private function has_persistent_auth(array $settings): bool {
+        $map = $this->get_persistent_auth_map();
+        $now = time();
+        $changed = false;
+
+        foreach ($map as $k => $expires) {
+            if ((int)$expires <= $now) {
+                unset($map[$k]);
+                $changed = true;
+            }
+        }
+
+        if ($changed) {
+            yourls_update_option(YNM_AUTH_OPT_KEY, $map);
+        }
+
+        $key = $this->auth_fingerprint($settings);
+        return isset($map[$key]) && (int)$map[$key] > $now;
+    }
+
     // Check if user is authenticated to access settings
     private function is_authenticated(): bool {
         $settings = self::get_settings();
@@ -149,6 +203,11 @@ class YN_Notify_Mail {
 
         // Fallback auth for environments where PHP session persistence is unreliable
         if ($this->has_valid_auth_cookie()) {
+            $_SESSION['ynm_authenticated'] = true;
+            return true;
+        }
+
+        if ($this->has_persistent_auth($settings)) {
             $_SESSION['ynm_authenticated'] = true;
             return true;
         }
@@ -242,6 +301,7 @@ class YN_Notify_Mail {
         $_SESSION['ynm_authenticated'] = false;
         unset($_SESSION['ynm_authenticated']);
         $this->set_auth_cookie(false);
+        $this->set_persistent_auth(false, $settings);
 
         return ['ok' => true, 'text' => yourls__('Admin password reset completed. Configure and test email, then set a new password.', YNM_DOMAIN)];
     }
@@ -278,6 +338,7 @@ class YN_Notify_Mail {
                         yourls_update_option(YNM_OPT_KEY, array_merge($settings, $setup_settings));
                         $_SESSION['ynm_authenticated'] = true;
                         $this->set_auth_cookie(true, $setup_settings['admin_password']);
+                        $this->set_persistent_auth(true, array_merge($settings, $setup_settings));
                         $message = yourls__('Setup completed! You can now configure the plugin.', YNM_DOMAIN);
                         $result = ['success' => true];
                         $password_is_set = true;
@@ -296,6 +357,7 @@ class YN_Notify_Mail {
                     if ($this->verify_password($password)) {
                         $_SESSION['ynm_authenticated'] = true;
                         $this->set_auth_cookie(true, $settings['admin_password']);
+                        $this->set_persistent_auth(true, $settings);
                         $is_authenticated = true;
                         $message = yourls__('Access granted.', YNM_DOMAIN);
                         $result = ['success' => true];
@@ -312,6 +374,7 @@ class YN_Notify_Mail {
                     $_SESSION['ynm_authenticated'] = false;
                     unset($_SESSION['ynm_authenticated']);
                     $this->set_auth_cookie(false);
+                    $this->set_persistent_auth(false, $settings);
                     $is_authenticated = false;
                     $message = yourls__('Logged out successfully.', YNM_DOMAIN);
                     $result = ['success' => true];
@@ -340,6 +403,7 @@ class YN_Notify_Mail {
                     if (!empty($settings['admin_password'])) {
                         $_SESSION['ynm_authenticated'] = true;
                         $this->set_auth_cookie(true, $settings['admin_password']);
+                        $this->set_persistent_auth(true, $settings);
                     }
                     $result = ['success' => true];
                     $message = yourls__('Settings saved.', YNM_DOMAIN);
@@ -377,6 +441,7 @@ class YN_Notify_Mail {
                 $_SESSION['ynm_authenticated'] = false;
                 unset($_SESSION['ynm_authenticated']);
                 $this->set_auth_cookie(false);
+                $this->set_persistent_auth(false, $current_settings);
                 
                 $result = ['success' => true];
                 $message = yourls__('Admin password has been reset. You will need to set it up again on next page load.', YNM_DOMAIN);
@@ -400,7 +465,7 @@ class YN_Notify_Mail {
 
         // Handle debug log clear (only if authenticated)
         if ($is_authenticated && isset($_GET['clear_debug'])) {
-            $debug_file = dirname(__FILE__) . '/debug.log';
+            $debug_file = dirname(__DIR__) . '/debug.log';
             if (file_exists($debug_file)) {
                 file_put_contents($debug_file, '');
             }
@@ -708,7 +773,7 @@ class YN_Notify_Mail {
         echo '<label><input type="checkbox" name="debug_enabled" '.($s['debug_enabled']?'checked':'').'> '.yourls__('Enable debug logging', YNM_DOMAIN).'</label>';
         echo '</div>';
 
-        $debug_file = dirname(__FILE__) . '/debug.log';
+        $debug_file = dirname(__DIR__) . '/debug.log';
         $debug_status = $this->check_debug_file_status($debug_file);
 
         if ($s['debug_enabled']) {
@@ -795,7 +860,7 @@ class YN_Notify_Mail {
         if ($s['debug_enabled']) {
             echo '<div class="form-section">';
             echo '<h3>🐛 Debug Log</h3>';
-            $debug_file = dirname(__FILE__) . '/debug.log';
+            $debug_file = dirname(__DIR__) . '/debug.log';
             if (file_exists($debug_file)) {
                 $file_size = filesize($debug_file);
                 $size_mb = round($file_size / 1024 / 1024, 2);
@@ -1043,7 +1108,7 @@ class YN_Notify_Mail {
             return;
         }
 
-        $log_file = dirname(__FILE__) . '/debug.log';
+        $log_file = dirname(__DIR__) . '/debug.log';
         
         if (file_exists($log_file) && filesize($log_file) > (5 * 1024 * 1024)) {
             $this->rotate_debug_log($log_file);

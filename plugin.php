@@ -14,6 +14,7 @@ if (!defined('YOURLS_ABSPATH')) die();
 
 define('YNM_VERSION',    '1.2.0');
 define('YNM_OPT_KEY',    'yn_change_notifier_settings');
+define('YNM_AUTH_OPT_KEY','yn_change_notifier_auth_sessions');
 define('YNM_DOMAIN',     'yourls-change-notifier');
 define('YNM_SNAP_EDIT',  'ynm__last_edit_snapshot');
 define('YNM_SNAP_DEL',   'ynm__last_delete_snapshot');
