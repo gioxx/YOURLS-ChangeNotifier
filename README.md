@@ -14,6 +14,7 @@ Never miss a creation, edit, or deletion again — whether it happens through ad
 - **Dual email delivery**: PHP mail() or full SMTP configuration
 - **SMTP support** with SSL/TLS encryption and authentication  
 - **Password-protected admin panel** for secure configuration
+- **Progressive password protection** (enabled after successful notification setup)
 - **Smart data capture** with before/after snapshots for edits
 - **Advanced debug logging** with automatic rotation (5MB limit)
 - **User identification** with IP tracking and authentication details
@@ -38,7 +39,11 @@ Never miss a creation, edit, or deletion again — whether it happens through ad
 ## ⚙️ Usage
 
 ### 🔐 First-Time Setup
-Set an admin password to protect the plugin configuration from unauthorized access.
+Password protection is enabled only after:
+- at least one valid recipient email is configured
+- at least one test email has been sent successfully
+
+This avoids lockouts during initial setup and enables secure password recovery via emailed reset link.
 
 ### 📧 Basic Configuration
 - **Recipients**: Add comma-separated email addresses to receive notifications
@@ -95,6 +100,8 @@ Target:   https://example.com/very-long-url-here
 ### Password Protection
 - **Secure admin panel** with hashed password storage
 - **Session management** for convenient access
+- **Shared-hosting resilience** with signed auth-cookie fallback when PHP sessions are unreliable
+- **Email-based password recovery** with one-time expiring reset links
 - **Password reset option** to return to initial setup
 
 ### Smart Data Capture
@@ -125,6 +132,7 @@ You can contribute new translations via `.po`/`.mo` files inside the `languages/
 - **Password hashing** using PHP's `password_hash()`
 - **CSRF protection** with WordPress-style nonces
 - **Session-based authentication** with automatic logout
+- **Signed cookie fallback** to prevent authentication loops on some shared-hosting setups
 - **Encoded SMTP passwords** for secure storage
 - **Input validation** and sanitization throughout
 
