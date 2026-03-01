@@ -1,0 +1,1548 @@
+<?php
+if (!defined('YOURLS_ABSPATH')) die();
+
+class YN_Notify_Mail {
+    public function __construct() {
+        // Register lifecycle hooks
+        yourls_add_filter('add_new_link',  [$this, 'on_created_filter'], 99, 5);
+        yourls_add_action('pre_edit_link', [$this, 'on_edit_pre'],       10, 5);
+        yourls_add_filter('edit_link',     [$this, 'on_edit_filter'],    10, 8);
+        yourls_add_action('admin_init',    [$this, 'capture_delete_on_admin_init']);
+        yourls_add_action('delete_link',   [$this, 'on_delete_direct'], 10, 1);
+    }
+
+    /* =========================
+       Settings and admin page
+       ========================= */
+
+    public static function defaults(): array {
+        return [
+            'recipients'     => '',
+            'notify_create'  => 1,
+            'notify_edit'    => 1,
+            'notify_delete'  => 1,
+            'subject_prefix' => '[YOURLS]',
+            'debug_enabled'  => 0,
+            'admin_password' => '',  // Admin password for settings access
+            'use_smtp'       => 0,
+            'smtp_host'      => '',
+            'smtp_port'      => 587,
+            'smtp_security'  => 'tls',  // none, ssl, tls
+            'smtp_auth'      => 1,
+            'smtp_username'  => '',
+            'smtp_password'  => '',
+            'smtp_from_email'=> '',
+            'smtp_from_name' => 'YOURLS Change Notifier',
+            'first_test_success_at'   => 0,
+            'first_test_confirmed_at' => 0,
+            'test_confirm_token_hash' => '',
+            'test_confirm_expires'    => 0,
+            'test_confirm_recipients_hash' => '',
+            'password_reset_token_hash' => '',
+            'password_reset_expires'    => 0,
+        ];
+    }
+
+    public static function get_settings(): array {
+        $opt = yourls_get_option(YNM_OPT_KEY);
+        if (!is_array($opt)) $opt = [];
+        return array_merge(self::defaults(), $opt);
+    }
+
+    public static function save_settings(array $in): void {
+        $current = self::get_settings();
+        $s = [
+            'recipients'     => trim((string)($in['recipients'] ?? '')),
+            'notify_create'  => empty($in['notify_create']) ? 0 : 1,
+            'notify_edit'    => empty($in['notify_edit']) ? 0 : 1,
+            'notify_delete'  => empty($in['notify_delete']) ? 0 : 1,
+            'subject_prefix' => trim((string)($in['subject_prefix'] ?? '[YOURLS]')),
+            'debug_enabled'  => empty($in['debug_enabled']) ? 0 : 1,
+            'use_smtp'       => empty($in['use_smtp']) ? 0 : 1,
+            'smtp_host'      => trim((string)($in['smtp_host'] ?? '')),
+            'smtp_port'      => max(1, min(65535, (int)($in['smtp_port'] ?? 587))),
+            'smtp_security'  => in_array($in['smtp_security'] ?? '', ['none', 'ssl', 'tls']) ? $in['smtp_security'] : 'tls',
+            'smtp_auth'      => empty($in['smtp_auth']) ? 0 : 1,
+            'smtp_username'  => trim((string)($in['smtp_username'] ?? '')),
+            'smtp_from_email'=> trim((string)($in['smtp_from_email'] ?? '')),
+            'smtp_from_name' => trim((string)($in['smtp_from_name'] ?? 'YOURLS Change Notifier')),
+            'first_test_success_at'   => (int)($current['first_test_success_at'] ?? 0),
+            'first_test_confirmed_at' => (int)($current['first_test_confirmed_at'] ?? 0),
+            'test_confirm_token_hash' => (string)($current['test_confirm_token_hash'] ?? ''),
+            'test_confirm_expires'    => (int)($current['test_confirm_expires'] ?? 0),
+            'test_confirm_recipients_hash' => (string)($current['test_confirm_recipients_hash'] ?? ''),
+            'password_reset_token_hash' => (string)($current['password_reset_token_hash'] ?? ''),
+            'password_reset_expires'    => (int)($current['password_reset_expires'] ?? 0),
+        ];
+
+        $normalize_recipient_list = static function (string $value): string {
+            $parts = array_filter(array_map('trim', explode(',', strtolower($value))));
+            sort($parts, SORT_STRING);
+            return implode(',', $parts);
+        };
+        $normalized_current_recipients = $normalize_recipient_list((string)($current['recipients'] ?? ''));
+        $normalized_new_recipients = $normalize_recipient_list((string)($s['recipients'] ?? ''));
+        if ($normalized_current_recipients !== $normalized_new_recipients) {
+            // Recipient changes invalidate previous delivery confirmations.
+            $s['first_test_success_at'] = 0;
+            $s['first_test_confirmed_at'] = 0;
+            $s['test_confirm_token_hash'] = '';
+            $s['test_confirm_expires'] = 0;
+            $s['test_confirm_recipients_hash'] = '';
+        }
+        
+        // Handle SMTP password separately (only update if provided)
+        if (!empty($in['smtp_password'])) {
+            $s['smtp_password'] = base64_encode($in['smtp_password']); // Simple encoding for storage
+        } else {
+            // Keep existing SMTP password
+            $s['smtp_password'] = $current['smtp_password'];
+        }
+        
+        // Only update admin password if a new one is provided
+        if (!empty($in['admin_password'])) {
+            $s['admin_password'] = password_hash($in['admin_password'], PASSWORD_DEFAULT);
+        } else {
+            // Keep existing admin password
+            $s['admin_password'] = $current['admin_password'];
+        }
+        
+        yourls_update_option(YNM_OPT_KEY, $s);
+    }
+
+    private function ensure_session_started(): void {
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            @session_start();
+        }
+    }
+
+    private function render_admin_assets(): void {
+        $base_dir = dirname(__DIR__);
+        $css_path = $base_dir . '/assets/admin.css';
+        $js_path  = $base_dir . '/assets/admin.js';
+
+        if (function_exists('yourls_plugin_url')) {
+            if (file_exists($css_path)) {
+                $css_url = yourls_plugin_url($css_path) . '?ver=' . rawurlencode(YNM_VERSION);
+                echo '<link rel="stylesheet" href="' . yourls_esc_attr($css_url) . '">';
+            }
+            if (file_exists($js_path)) {
+                $js_url = yourls_plugin_url($js_path) . '?ver=' . rawurlencode(YNM_VERSION);
+                echo '<script src="' . yourls_esc_attr($js_url) . '"></script>';
+            }
+            return;
+        }
+
+        if (file_exists($css_path)) {
+            echo '<style>' . file_get_contents($css_path) . '</style>';
+        }
+        if (file_exists($js_path)) {
+            echo '<script>' . file_get_contents($js_path) . '</script>';
+        }
+    }
+
+    private function auth_cookie_name(): string {
+        return 'ynm_auth';
+    }
+
+    private function auth_cookie_token(string $password_hash): string {
+        $secret = (defined('YOURLS_COOKIEKEY') ? YOURLS_COOKIEKEY : YNM_OPT_KEY);
+        $secret .= '|' . (defined('YOURLS_SITE') ? YOURLS_SITE : '');
+        return hash_hmac('sha256', $password_hash, $secret);
+    }
+
+    private function set_auth_cookie(bool $authenticated, string $password_hash = ''): void {
+        if (headers_sent()) {
+            return;
+        }
+
+        $is_https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $cookie_name = $this->auth_cookie_name();
+
+        if ($authenticated && $password_hash !== '') {
+            setcookie($cookie_name, $this->auth_cookie_token($password_hash), time() + 43200, '/', '', $is_https, true);
+            return;
+        }
+
+        setcookie($cookie_name, '', time() - 3600, '/', '', $is_https, true);
+    }
+
+    private function has_valid_auth_cookie(): bool {
+        $settings = self::get_settings();
+        if (empty($settings['admin_password'])) {
+            return false;
+        }
+
+        $cookie = $_COOKIE[$this->auth_cookie_name()] ?? '';
+        if ($cookie === '') {
+            return false;
+        }
+
+        $expected = $this->auth_cookie_token($settings['admin_password']);
+        return function_exists('hash_equals') ? hash_equals($expected, $cookie) : $expected === $cookie;
+    }
+
+    private function auth_fingerprint(array $settings): string {
+        $user_cookie = '';
+        if (function_exists('yourls_cookie_name')) {
+            $cookie_name = yourls_cookie_name();
+            $user_cookie = (string)($_COOKIE[$cookie_name] ?? '');
+        }
+
+        $parts = [
+            (string)($settings['admin_password'] ?? ''),
+            (string)$this->ip(),
+            (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
+            $user_cookie,
+        ];
+        return hash('sha256', implode('|', $parts));
+    }
+
+    private function get_persistent_auth_map(): array {
+        $map = yourls_get_option(YNM_AUTH_OPT_KEY);
+        return is_array($map) ? $map : [];
+    }
+
+    private function set_persistent_auth(bool $enabled, array $settings): void {
+        $map = $this->get_persistent_auth_map();
+        $key = $this->auth_fingerprint($settings);
+
+        if ($enabled) {
+            $map[$key] = time() + 43200; // 12 hours
+        } else {
+            unset($map[$key]);
+        }
+
+        yourls_update_option(YNM_AUTH_OPT_KEY, $map);
+    }
+
+    private function has_persistent_auth(array $settings): bool {
+        $map = $this->get_persistent_auth_map();
+        $now = time();
+        $changed = false;
+
+        foreach ($map as $k => $expires) {
+            if ((int)$expires <= $now) {
+                unset($map[$k]);
+                $changed = true;
+            }
+        }
+
+        if ($changed) {
+            yourls_update_option(YNM_AUTH_OPT_KEY, $map);
+        }
+
+        $key = $this->auth_fingerprint($settings);
+        return isset($map[$key]) && (int)$map[$key] > $now;
+    }
+
+    // Check if user is authenticated to access settings
+    private function is_authenticated(): bool {
+        $settings = self::get_settings();
+        
+        // If no password is set, require initial setup
+        if (empty($settings['admin_password'])) {
+            return false;
+        }
+        
+        // Check session authentication
+        if (isset($_SESSION['ynm_authenticated']) && $_SESSION['ynm_authenticated'] === true) {
+            return true;
+        }
+
+        // Fallback auth for environments where PHP session persistence is unreliable
+        if ($this->has_valid_auth_cookie()) {
+            $_SESSION['ynm_authenticated'] = true;
+            return true;
+        }
+
+        if ($this->has_persistent_auth($settings)) {
+            $_SESSION['ynm_authenticated'] = true;
+            return true;
+        }
+        
+        return false;
+    }
+
+    // Verify provided password against stored hash
+    private function verify_password(string $password): bool {
+        $settings = self::get_settings();
+        if (empty($settings['admin_password'])) {
+            return false;
+        }
+        return password_verify($password, $settings['admin_password']);
+    }
+
+    private function get_valid_recipients(array $settings): array {
+        $raw = array_filter(array_map('trim', explode(',', (string)($settings['recipients'] ?? ''))));
+        return array_values(array_filter($raw, function ($email) {
+            return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+        }));
+    }
+
+    private function recipients_hash(array $recipients): string {
+        $normalized = array_map(static function ($email) {
+            return strtolower(trim((string)$email));
+        }, $recipients);
+        sort($normalized, SORT_STRING);
+        return hash('sha256', implode(',', $normalized));
+    }
+
+    private function can_enable_password_protection(array $settings): bool {
+        $has_recipient = !empty($this->get_valid_recipients($settings));
+        $has_successful_test = !empty($settings['first_test_success_at']);
+        $has_confirmed_test = !empty($settings['first_test_confirmed_at']);
+        return $has_recipient && $has_successful_test && $has_confirmed_test;
+    }
+
+    private function clear_test_confirmation_token(array $settings): void {
+        $settings['test_confirm_token_hash'] = '';
+        $settings['test_confirm_expires'] = 0;
+        $settings['test_confirm_recipients_hash'] = '';
+        yourls_update_option(YNM_OPT_KEY, $settings);
+    }
+
+    private function clear_password_reset_token(array $settings): void {
+        $settings['password_reset_token_hash'] = '';
+        $settings['password_reset_expires'] = 0;
+        yourls_update_option(YNM_OPT_KEY, $settings);
+    }
+
+    private function send_password_reset_email(array $settings): array {
+        $recipients = $this->get_valid_recipients($settings);
+        if (empty($recipients)) {
+            return ['ok' => false, 'text' => yourls__('Password recovery is unavailable: no valid recipient email configured.', YNM_DOMAIN)];
+        }
+
+        if (!function_exists('random_bytes')) {
+            return ['ok' => false, 'text' => yourls__('Password recovery is not available on this server.', YNM_DOMAIN)];
+        }
+
+        try {
+            $token = bin2hex(random_bytes(32));
+        } catch (Exception $e) {
+            return ['ok' => false, 'text' => yourls__('Password recovery is not available on this server.', YNM_DOMAIN)];
+        }
+        $expires = time() + 900; // 15 minutes
+        $settings['password_reset_token_hash'] = hash('sha256', $token);
+        $settings['password_reset_expires'] = $expires;
+        yourls_update_option(YNM_OPT_KEY, $settings);
+
+        $reset_url = yourls_admin_url('plugins.php?page=yn-change-notifier&ynm_reset_token=' . rawurlencode($token));
+        $subject = $settings['subject_prefix'] . ' Password reset request';
+        $body = "A password reset was requested for YOURLS Change Notifier.\n\n";
+        $body .= "Use this link to reset the plugin admin password:\n$reset_url\n\n";
+        $body .= "This link expires in 15 minutes.\n";
+        $body .= "If you did not request this reset, you can ignore this email.\n";
+
+        $this->send_mail($subject, $body);
+
+        return ['ok' => true, 'text' => yourls__('Password reset link sent to configured recipients.', YNM_DOMAIN)];
+    }
+
+    private function consume_password_reset_token(string $token): array {
+        $settings = self::get_settings();
+        $stored_hash = (string)($settings['password_reset_token_hash'] ?? '');
+        $expires = (int)($settings['password_reset_expires'] ?? 0);
+
+        if ($stored_hash === '' || $expires <= time()) {
+            if ($stored_hash !== '' || $expires !== 0) {
+                $this->clear_password_reset_token($settings);
+            }
+            return ['ok' => false, 'text' => yourls__('Reset link is invalid or expired.', YNM_DOMAIN)];
+        }
+
+        $provided_hash = hash('sha256', $token);
+        $valid = function_exists('hash_equals') ? hash_equals($stored_hash, $provided_hash) : $stored_hash === $provided_hash;
+        if (!$valid) {
+            return ['ok' => false, 'text' => yourls__('Reset link is invalid or expired.', YNM_DOMAIN)];
+        }
+
+        $settings['admin_password'] = '';
+        $settings['password_reset_token_hash'] = '';
+        $settings['password_reset_expires'] = 0;
+        yourls_update_option(YNM_OPT_KEY, $settings);
+
+        $_SESSION['ynm_authenticated'] = false;
+        unset($_SESSION['ynm_authenticated']);
+        $this->set_auth_cookie(false);
+        $this->set_persistent_auth(false, $settings);
+
+        return ['ok' => true, 'text' => yourls__('Admin password reset completed. Configure email, send and confirm a test email, then set a new password.', YNM_DOMAIN)];
+    }
+
+    private function consume_test_confirmation_token(string $token): array {
+        $settings = self::get_settings();
+        $stored_hash = (string)($settings['test_confirm_token_hash'] ?? '');
+        $expires = (int)($settings['test_confirm_expires'] ?? 0);
+
+        if ($stored_hash === '' || $expires <= time()) {
+            if ($stored_hash !== '' || $expires !== 0) {
+                $this->clear_test_confirmation_token($settings);
+            }
+            return ['ok' => false, 'text' => yourls__('Test confirmation link is invalid or expired. Please send a new test email.', YNM_DOMAIN)];
+        }
+
+        $current_recipients_hash = $this->recipients_hash($this->get_valid_recipients($settings));
+        $stored_recipients_hash = (string)($settings['test_confirm_recipients_hash'] ?? '');
+        if ($stored_recipients_hash === '' || $stored_recipients_hash !== $current_recipients_hash) {
+            $this->clear_test_confirmation_token($settings);
+            return ['ok' => false, 'text' => yourls__('Recipients changed since the test email was sent. Please send and confirm a new test email.', YNM_DOMAIN)];
+        }
+
+        $provided_hash = hash('sha256', $token);
+        $valid = function_exists('hash_equals') ? hash_equals($stored_hash, $provided_hash) : $stored_hash === $provided_hash;
+        if (!$valid) {
+            return ['ok' => false, 'text' => yourls__('Test confirmation link is invalid or expired. Please send a new test email.', YNM_DOMAIN)];
+        }
+
+        $settings['first_test_confirmed_at'] = time();
+        $settings['test_confirm_token_hash'] = '';
+        $settings['test_confirm_expires'] = 0;
+        $settings['test_confirm_recipients_hash'] = '';
+        yourls_update_option(YNM_OPT_KEY, $settings);
+
+        return ['ok' => true, 'text' => yourls__('Test email delivery confirmed. Password protection can now be enabled.', YNM_DOMAIN)];
+    }
+
+    public function render_admin_page(): void {
+        // Start session if possible, but don't fail hard if headers were already sent
+        $this->ensure_session_started();
+
+        $settings = self::get_settings();
+        $password_is_set = !empty($settings['admin_password']);
+        $password_prereq_ready = $this->can_enable_password_protection($settings);
+        $is_authenticated = $password_is_set ? $this->is_authenticated() : true;
+
+        if (isset($_GET['ynm_reset_token']) && is_string($_GET['ynm_reset_token'])) {
+            $msg = $this->consume_password_reset_token(trim($_GET['ynm_reset_token']));
+            $result = ['success' => $msg['ok']];
+            $message = $msg['text'];
+            $settings = self::get_settings();
+            $password_is_set = !empty($settings['admin_password']);
+            $password_prereq_ready = $this->can_enable_password_protection($settings);
+            $is_authenticated = $password_is_set ? $this->is_authenticated() : true;
+        }
+
+        if (isset($_GET['ynm_confirm_test']) && is_string($_GET['ynm_confirm_test'])) {
+            $msg = $this->consume_test_confirmation_token(trim($_GET['ynm_confirm_test']));
+            $result = ['success' => $msg['ok']];
+            $message = $msg['text'];
+            $settings = self::get_settings();
+            $password_is_set = !empty($settings['admin_password']);
+            $password_prereq_ready = $this->can_enable_password_protection($settings);
+            $is_authenticated = $password_is_set ? $this->is_authenticated() : true;
+        }
+
+        // Handle authentication and setup
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (isset($_POST['ynm_action'])) {
+                if ($_POST['ynm_action'] === 'setup' && !$password_is_set && $password_prereq_ready && yourls_verify_nonce('ynm_setup')) {
+                    // Initial setup - set password
+                    $password = trim($_POST['admin_password'] ?? '');
+                    if (strlen($password) >= 6) {
+                        $setup_settings = [
+                            'admin_password' => password_hash($password, PASSWORD_DEFAULT)
+                        ];
+                        yourls_update_option(YNM_OPT_KEY, array_merge($settings, $setup_settings));
+                        $_SESSION['ynm_authenticated'] = true;
+                        $this->set_auth_cookie(true, $setup_settings['admin_password']);
+                        $this->set_persistent_auth(true, array_merge($settings, $setup_settings));
+                        $message = yourls__('Setup completed! You can now configure the plugin.', YNM_DOMAIN);
+                        $result = ['success' => true];
+                        $password_is_set = true;
+                        $is_authenticated = true;
+                        $settings = self::get_settings();
+                    } elseif (!$password_prereq_ready) {
+                        $message = yourls__('Before enabling password protection, add at least one recipient, send a test email, and confirm delivery from the email link.', YNM_DOMAIN);
+                        $result = ['success' => false];
+                    } else {
+                        $message = yourls__('Password must be at least 6 characters long.', YNM_DOMAIN);
+                        $result = ['success' => false];
+                    }
+                } elseif ($_POST['ynm_action'] === 'login' && $password_is_set && yourls_verify_nonce('ynm_login')) {
+                    // Login attempt
+                    $password = trim($_POST['admin_password'] ?? '');
+                    if ($this->verify_password($password)) {
+                        $_SESSION['ynm_authenticated'] = true;
+                        $this->set_auth_cookie(true, $settings['admin_password']);
+                        $this->set_persistent_auth(true, $settings);
+                        $is_authenticated = true;
+                        $message = yourls__('Access granted.', YNM_DOMAIN);
+                        $result = ['success' => true];
+                    } else {
+                        $message = yourls__('Invalid password.', YNM_DOMAIN);
+                        $result = ['success' => false];
+                    }
+                } elseif ($_POST['ynm_action'] === 'forgot_password' && $password_is_set && yourls_verify_nonce('ynm_forgot_password')) {
+                    $msg = $this->send_password_reset_email($settings);
+                    $result = ['success' => $msg['ok']];
+                    $message = $msg['text'];
+                } elseif ($_POST['ynm_action'] === 'logout') {
+                    // Logout
+                    $_SESSION['ynm_authenticated'] = false;
+                    unset($_SESSION['ynm_authenticated']);
+                    $this->set_auth_cookie(false);
+                    $this->set_persistent_auth(false, $settings);
+                    $is_authenticated = false;
+                    $message = yourls__('Logged out successfully.', YNM_DOMAIN);
+                    $result = ['success' => true];
+                }
+            }
+        }
+
+        // Handle other actions only if authenticated
+        if ($is_authenticated && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ynm_action'])) {
+            if ($_POST['ynm_action'] === 'save' && yourls_verify_nonce('ynm_save')) {
+                $incoming = $_POST;
+                if (!$password_is_set && !$password_prereq_ready) {
+                    unset($incoming['admin_password']);
+                }
+                $candidate_settings = $settings;
+                if (isset($incoming['recipients'])) {
+                    $candidate_settings['recipients'] = trim((string)$incoming['recipients']);
+                }
+                if ($password_is_set && empty($this->get_valid_recipients($candidate_settings))) {
+                    $result = ['success' => false];
+                    $message = yourls__('At least one valid recipient is required while password protection is active.', YNM_DOMAIN);
+                } else {
+                    self::save_settings($incoming);
+                    $settings = self::get_settings();
+                    $password_is_set = !empty($settings['admin_password']);
+                    if (!empty($settings['admin_password'])) {
+                        $_SESSION['ynm_authenticated'] = true;
+                        $this->set_auth_cookie(true, $settings['admin_password']);
+                        $this->set_persistent_auth(true, $settings);
+                    }
+                    $result = ['success' => true];
+                    $message = yourls__('Settings saved.', YNM_DOMAIN);
+                }
+                $password_prereq_ready = $this->can_enable_password_protection($settings);
+            } elseif ($_POST['ynm_action'] === 'test' && yourls_verify_nonce('ynm_save')) {
+                $msg = $this->send_test();
+                $result = ['success' => $msg['ok']];
+                $message = $msg['text'];
+                $settings = self::get_settings();
+                $password_prereq_ready = $this->can_enable_password_protection($settings);
+            } elseif ($_POST['ynm_action'] === 'reset' && yourls_verify_nonce('ynm_reset')) {
+                // Reset all settings to defaults (but keep admin password)
+                $current_settings = self::get_settings();
+                $defaults = self::defaults();
+                
+                // Preserve admin password
+                $defaults['admin_password'] = $current_settings['admin_password'];
+                
+                yourls_update_option(YNM_OPT_KEY, $defaults);
+                $result = ['success' => true];
+                $message = yourls__('All settings have been reset to defaults. Admin password was preserved.', YNM_DOMAIN);
+                
+                // Refresh settings for display
+                $settings = self::get_settings();
+                $password_prereq_ready = $this->can_enable_password_protection($settings);
+            } elseif ($_POST['ynm_action'] === 'reset_password' && yourls_verify_nonce('ynm_reset_password')) {
+                // Reset admin password - clear it completely
+                $current_settings = self::get_settings();
+                $current_settings['admin_password'] = '';
+                
+                yourls_update_option(YNM_OPT_KEY, $current_settings);
+                
+                // Clear authentication session
+                $_SESSION['ynm_authenticated'] = false;
+                unset($_SESSION['ynm_authenticated']);
+                $this->set_auth_cookie(false);
+                $this->set_persistent_auth(false, $current_settings);
+                
+                $result = ['success' => true];
+                $message = yourls__('Admin password has been reset. You will need to set it up again on next page load.', YNM_DOMAIN);
+                $password_is_set = false;
+                $is_authenticated = true;
+                $settings = self::get_settings();
+                $password_prereq_ready = $this->can_enable_password_protection($settings);
+                
+                // Force a redirect to show the setup page
+                echo '<script>setTimeout(function(){ window.location.reload(); }, 2000);</script>';
+            }
+        }
+
+        // Refresh state after mutations
+        $settings = self::get_settings();
+        $password_is_set = !empty($settings['admin_password']);
+        $password_prereq_ready = $this->can_enable_password_protection($settings);
+        $is_authenticated = $password_is_set ? $this->is_authenticated() : true;
+        $valid_recipients = $this->get_valid_recipients($settings);
+        $has_successful_test = !empty($settings['first_test_success_at']);
+        $has_confirmed_test = !empty($settings['first_test_confirmed_at']);
+
+        // Handle debug log clear (only if authenticated)
+        if ($is_authenticated && isset($_GET['clear_debug'])) {
+            $debug_file = dirname(__DIR__) . '/debug.log';
+            if (file_exists($debug_file)) {
+                file_put_contents($debug_file, '');
+            }
+            $redirect_url = yourls_admin_url('plugins.php?page=yn-change-notifier');
+            yourls_redirect($redirect_url);
+            return;
+        }
+
+        $this->render_admin_assets();
+
+        // Plugin header
+        echo '<div class="plugin-header">';
+        echo '<h2 class="plugin-title">🔔 '.yourls__('YOURLS Change Notifier', YNM_DOMAIN).'</h2>';
+        echo '<p class="plugin-version">'.yourls__('Version: ', YNM_DOMAIN).YNM_VERSION.'</p>';
+        
+        // Show logout link only when password protection is active
+        if ($password_is_set && $is_authenticated) {
+            echo '<div class="logout-link">';
+            echo '<form method="post" style="display:inline;">';
+            echo '<input type="hidden" name="ynm_action" value="logout">';
+            echo '<input type="submit" value="🚪 '.yourls__('Logout from Change Notifier', YNM_DOMAIN).'" class="button" style="font-size:11px; padding:4px 8px;">';
+            echo '</form>';
+            echo '</div>';
+        }
+        echo '</div>';
+
+        // Show messages
+        $notice = '';
+        if (!empty($message)) {
+            $notice = '<div style="margin:10px 0; padding:10px; border-left:4px solid '.(!empty($result['success']) ? '#46b450' : '#dc3232').'; background: '.(!empty($result['success']) ? '#e6ffed' : '#fbeaea').';">'.$message.'</div>';
+        }
+        if ($notice) echo $notice;
+
+        if ($password_is_set && empty($valid_recipients)) {
+            echo '<div style="margin:10px 0; padding:10px; border-left:4px solid #ffb900; background:#fff8e5;">⚠️ '.yourls__('Password protection is active but no valid recipient email is configured. Saving recipient settings is blocked until at least one valid recipient is provided.', YNM_DOMAIN).'</div>';
+        }
+
+        if (!$password_is_set && !$password_prereq_ready) {
+            echo '<div class="form-section">';
+            echo '<h3>🔓 '.yourls__('Password protection available after initial configuration', YNM_DOMAIN).'</h3>';
+            echo '<p class="muted">'.yourls__('To avoid lockout, password protection will be enabled only after you configure at least one valid recipient, send a test email, and confirm delivery using the confirmation link from that email.', YNM_DOMAIN).'</p>';
+            echo '<ul class="muted" style="margin:10px 0 0 18px;">';
+            echo '<li>'.($valid_recipients ? '✅ ' : '❌ ').yourls__('At least one valid recipient email configured', YNM_DOMAIN).'</li>';
+            echo '<li>'.($has_successful_test ? '✅ ' : '❌ ').yourls__('At least one successful test email sent', YNM_DOMAIN).'</li>';
+            echo '<li>'.($has_confirmed_test ? '✅ ' : '❌ ').yourls__('At least one test email delivery confirmed via link click', YNM_DOMAIN).'</li>';
+            echo '</ul>';
+            echo '</div>';
+        }
+
+        // Show setup form only when prerequisites are satisfied
+        if (!$password_is_set && $password_prereq_ready) {
+            echo '<div class="auth-section">';
+            echo '<h3>🔐 '.yourls__('Initial Setup Required', YNM_DOMAIN).'</h3>';
+            echo '<p>'.yourls__('Please set an admin password to protect plugin settings:', YNM_DOMAIN).'</p>';
+            echo '<form method="post">';
+            echo '<input type="hidden" name="ynm_action" value="setup">';
+            echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_setup')).'">';
+            echo '<input type="password" name="admin_password" placeholder="'.yourls__('Enter admin password (min 6 chars)', YNM_DOMAIN).'" required minlength="6">';
+            echo '<br><input type="submit" class="button button-primary" value="🔒 '.yourls__('Set Password & Continue', YNM_DOMAIN).'">';
+            echo '</form>';
+            echo '</div>';
+        }
+
+        // Show login form if password is active and user is not authenticated
+        if ($password_is_set && !$is_authenticated) {
+            echo '<div class="auth-section">';
+            echo '<h3>🔐 '.yourls__('Authentication Required', YNM_DOMAIN).'</h3>';
+            echo '<p>'.yourls__('Please enter the admin password to access plugin settings:', YNM_DOMAIN).'</p>';
+            echo '<form method="post">';
+            echo '<input type="hidden" name="ynm_action" value="login">';
+            echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_login')).'">';
+            echo '<input type="password" name="admin_password" placeholder="'.yourls__('Admin password', YNM_DOMAIN).'" required>';
+            echo '<br><input type="submit" class="button button-primary" value="🔓 '.yourls__('Access Settings', YNM_DOMAIN).'">';
+            echo '</form>';
+            echo '<form method="post" style="margin-top:10px;">';
+            echo '<input type="hidden" name="ynm_action" value="forgot_password">';
+            echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_forgot_password')).'">';
+            echo '<input type="submit" class="button" value="📨 '.yourls__('Forgot password? Send reset link', YNM_DOMAIN).'">';
+            echo '</form>';
+            echo '</div>';
+            echo ynm_render_footer();
+            return;
+        }
+
+        // Show main settings (only if authenticated)
+        $s = self::get_settings();
+        $nonce = yourls_create_nonce('ynm_save');
+
+        // Basic Settings form
+        echo '<div class="form-section">';
+        echo '<h3>📝 '.yourls__('Basic Settings', YNM_DOMAIN).'</h3>';
+        echo '<form method="post">';
+        echo '<input type="hidden" name="ynm_action" value="save">';
+        echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr($nonce).'">';
+
+        // Copy all SMTP settings to maintain them
+        echo '<input type="hidden" name="use_smtp" value="'.($s['use_smtp'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="smtp_host" value="'.yourls_esc_attr($s['smtp_host']).'">';
+        echo '<input type="hidden" name="smtp_port" value="'.yourls_esc_attr($s['smtp_port']).'">';
+        echo '<input type="hidden" name="smtp_security" value="'.yourls_esc_attr($s['smtp_security']).'">';
+        echo '<input type="hidden" name="smtp_auth" value="'.($s['smtp_auth'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="smtp_username" value="'.yourls_esc_attr($s['smtp_username']).'">';
+        echo '<input type="hidden" name="smtp_from_email" value="'.yourls_esc_attr($s['smtp_from_email']).'">';
+        echo '<input type="hidden" name="smtp_from_name" value="'.yourls_esc_attr($s['smtp_from_name']).'">';
+        echo '<input type="hidden" name="debug_enabled" value="'.($s['debug_enabled'] ? '1' : '0').'">';
+
+        echo '<div class="form-row">';
+        echo '<label for="ynm_recipients">'.yourls__('Recipients (comma-separated)', YNM_DOMAIN).'</label>';
+        echo '<textarea id="ynm_recipients" name="recipients" rows="3" placeholder="ops@company.com, admin@company.com">'.yourls_esc_html($s['recipients']).'</textarea>';
+        echo '<div class="muted">'.yourls__('Example:', YNM_DOMAIN).' ops@company.com, admin@company.com</div>';
+        echo '</div>';
+
+        echo '<div class="form-row checkboxes">';
+        echo '<label class="group-title">'.yourls__('Notify on', YNM_DOMAIN).'</label>';
+        echo '<div class="inline">';
+        echo '<label><input type="checkbox" name="notify_create" '.($s['notify_create']?'checked':'').'> '.yourls__('Create', YNM_DOMAIN).'</label>';
+        echo '<label><input type="checkbox" name="notify_edit" '.($s['notify_edit']?'checked':'').'> '.yourls__('Edit', YNM_DOMAIN).'</label>';
+        echo '<label><input type="checkbox" name="notify_delete" '.($s['notify_delete']?'checked':'').'> '.yourls__('Delete', YNM_DOMAIN).'</label>';
+        echo '</div>';
+        echo '</div>';
+
+        echo '<div class="form-row">';
+        echo '<label for="ynm_subject_prefix">'.yourls__('Subject prefix', YNM_DOMAIN).'</label>';
+        echo '<input type="text" id="ynm_subject_prefix" name="subject_prefix" value="'.yourls_esc_attr($s['subject_prefix']).'">';
+        echo '</div>';
+
+        echo '<div class="actions-row">';
+        echo '<input type="submit" class="button button-primary" value="💾 '.yourls__('Save Basic Settings', YNM_DOMAIN).'">';
+        echo '</div>';
+
+        echo '</form>';
+        echo '</div>';
+
+        // SMTP Configuration Section
+        echo '<div class="form-section smtp-section">';
+        echo '<h3>📧 '.yourls__('Email Configuration', YNM_DOMAIN).'</h3>';
+        echo '<form method="post">';
+        echo '<input type="hidden" name="ynm_action" value="save">';
+        echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr($nonce).'">';
+        
+        // Copy notification settings to maintain them
+        echo '<input type="hidden" name="recipients" value="'.yourls_esc_attr($s['recipients']).'">';
+        echo '<input type="hidden" name="notify_create" value="'.($s['notify_create'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="notify_edit" value="'.($s['notify_edit'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="notify_delete" value="'.($s['notify_delete'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="subject_prefix" value="'.yourls_esc_attr($s['subject_prefix']).'">';
+        echo '<input type="hidden" name="debug_enabled" value="'.($s['debug_enabled'] ? '1' : '0').'">';
+
+        echo '<div class="form-row checkboxes">';
+        echo '<label class="group-title">'.yourls__('Email Method', YNM_DOMAIN).'</label>';
+        echo '<div class="inline">';
+        echo '<label><input type="radio" name="use_smtp" value="0" '.(!$s['use_smtp']?'checked':'').' onchange="toggleSmtp()"> '.yourls__('Use PHP mail() function', YNM_DOMAIN).'</label>';
+        echo '<label><input type="radio" name="use_smtp" value="1" '.($s['use_smtp']?'checked':'').' onchange="toggleSmtp()"> '.yourls__('Use SMTP server', YNM_DOMAIN).'</label>';
+        echo '</div>';
+        echo '</div>';
+
+        echo '<div id="smtp-settings" class="'.(!$s['use_smtp'] ? 'smtp-disabled' : '').'">';
+        
+        echo '<div class="form-row">';
+        echo '<label for="ynm_smtp_from_email">'.yourls__('From Email Address', YNM_DOMAIN).'</label>';
+        echo '<input type="email" id="ynm_smtp_from_email" name="smtp_from_email" value="'.yourls_esc_attr($s['smtp_from_email']).'" placeholder="notifications@yourdomain.com">';
+        echo '<div class="muted">'.yourls__('Email address that will appear as sender', YNM_DOMAIN).'</div>';
+        echo '</div>';
+
+        echo '<div class="form-row">';
+        echo '<label for="ynm_smtp_from_name">'.yourls__('From Name', YNM_DOMAIN).'</label>';
+        echo '<input type="text" id="ynm_smtp_from_name" name="smtp_from_name" value="'.yourls_esc_attr($s['smtp_from_name']).'" placeholder="YOURLS Change Notifier">';
+        echo '</div>';
+
+        echo '<div class="form-row half">';
+        echo '<label for="ynm_smtp_host">'.yourls__('SMTP Host', YNM_DOMAIN).'</label>';
+        echo '<input type="text" id="ynm_smtp_host" name="smtp_host" value="'.yourls_esc_attr($s['smtp_host']).'" placeholder="smtp.gmail.com">';
+        echo '</div>';
+
+        echo '<div class="form-row quarter">';
+        echo '<label for="ynm_smtp_port">'.yourls__('Port', YNM_DOMAIN).'</label>';
+        echo '<input type="number" id="ynm_smtp_port" name="smtp_port" value="'.yourls_esc_attr($s['smtp_port']).'" min="1" max="65535">';
+        echo '</div>';
+
+        echo '<div class="form-row quarter">';
+        echo '<label for="ynm_smtp_security">'.yourls__('Security', YNM_DOMAIN).'</label>';
+        echo '<select id="ynm_smtp_security" name="smtp_security">';
+        echo '<option value="none"'.($s['smtp_security'] === 'none' ? ' selected' : '').'>'.yourls__('None', YNM_DOMAIN).'</option>';
+        echo '<option value="ssl"'.($s['smtp_security'] === 'ssl' ? ' selected' : '').'>SSL</option>';
+        echo '<option value="tls"'.($s['smtp_security'] === 'tls' ? ' selected' : '').'>TLS</option>';
+        echo '</select>';
+        echo '</div>';
+        
+        echo '<div style="clear:both;"></div>';
+
+        echo '<div class="form-row checkboxes">';
+        echo '<label class="group-title">'.yourls__('Authentication', YNM_DOMAIN).'</label>';
+        echo '<div class="inline">';
+        echo '<label><input type="checkbox" name="smtp_auth" '.($s['smtp_auth']?'checked':'').' onchange="toggleSmtpAuth()"> '.yourls__('Require authentication', YNM_DOMAIN).'</label>';
+        echo '</div>';
+        echo '</div>';
+
+        echo '<div id="smtp-auth" class="'.(!$s['smtp_auth'] ? 'smtp-disabled' : '').'">';
+        echo '<div class="form-row half">';
+        echo '<label for="ynm_smtp_username">'.yourls__('Username', YNM_DOMAIN).'</label>';
+        echo '<input type="text" id="ynm_smtp_username" name="smtp_username" value="'.yourls_esc_attr($s['smtp_username']).'" placeholder="your-email@gmail.com">';
+        echo '</div>';
+
+        echo '<div class="form-row half">';
+        echo '<label for="ynm_smtp_password">'.yourls__('Password', YNM_DOMAIN).'</label>';
+        echo '<input type="password" id="ynm_smtp_password" name="smtp_password" placeholder="'.yourls__('Leave empty to keep current', YNM_DOMAIN).'">';
+        echo '<div class="muted">'.yourls__('Use app passwords for Gmail/Outlook', YNM_DOMAIN).'</div>';
+        echo '</div>';
+        echo '<div style="clear:both;"></div>';
+        echo '</div>';
+
+        echo '</div>';
+
+        echo '<div class="actions-row">';
+        echo '<input type="submit" class="button button-primary" value="💾 '.yourls__('Save Email Settings', YNM_DOMAIN).'">';
+        echo '</div>';
+
+        echo '</form>';
+        echo '</div>';
+
+        // Advanced Settings
+        echo '<div class="form-section">';
+        echo '<h3>⚙️ '.yourls__('Advanced Settings', YNM_DOMAIN).'</h3>';
+        echo '<form method="post">';
+        echo '<input type="hidden" name="ynm_action" value="save">';
+        echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr($nonce).'">';
+        
+        // Copy all other settings to maintain them
+        echo '<input type="hidden" name="recipients" value="'.yourls_esc_attr($s['recipients']).'">';
+        echo '<input type="hidden" name="notify_create" value="'.($s['notify_create'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="notify_edit" value="'.($s['notify_edit'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="notify_delete" value="'.($s['notify_delete'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="subject_prefix" value="'.yourls_esc_attr($s['subject_prefix']).'">';
+        echo '<input type="hidden" name="use_smtp" value="'.($s['use_smtp'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="smtp_host" value="'.yourls_esc_attr($s['smtp_host']).'">';
+        echo '<input type="hidden" name="smtp_port" value="'.yourls_esc_attr($s['smtp_port']).'">';
+        echo '<input type="hidden" name="smtp_security" value="'.yourls_esc_attr($s['smtp_security']).'">';
+        echo '<input type="hidden" name="smtp_auth" value="'.($s['smtp_auth'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="smtp_username" value="'.yourls_esc_attr($s['smtp_username']).'">';
+        echo '<input type="hidden" name="smtp_from_email" value="'.yourls_esc_attr($s['smtp_from_email']).'">';
+        echo '<input type="hidden" name="smtp_from_name" value="'.yourls_esc_attr($s['smtp_from_name']).'">';
+
+        // Debug logging option
+        echo '<div class="form-row checkboxes">';
+        echo '<label class="group-title">'.yourls__('Debug Options', YNM_DOMAIN).'</label>';
+        echo '<div class="inline">';
+        echo '<label><input type="checkbox" name="debug_enabled" '.($s['debug_enabled']?'checked':'').'> '.yourls__('Enable debug logging', YNM_DOMAIN).'</label>';
+        echo '</div>';
+
+        $debug_file = dirname(__DIR__) . '/debug.log';
+        $debug_status = $this->check_debug_file_status($debug_file);
+
+        if ($s['debug_enabled']) {
+            echo '<div class="debug-info">';
+            echo '⚠️ '.yourls__('Debug logging is active. The log file will be automatically rotated when it exceeds 5MB.', YNM_DOMAIN);
+            
+            if (!$debug_status['writable']) {
+                echo '<br><span style="color:#dc3232;">❌ '.yourls__('Warning: Cannot write to debug log file. Check directory permissions or create debug.log file into plugin directory and change permissions (chmod 666).', YNM_DOMAIN).'</span>';
+            } elseif ($debug_status['exists']) {
+                echo '<br>✅ '.yourls__('Debug log file is writable.', YNM_DOMAIN);
+            } else {
+                echo '<br>ℹ️ '.yourls__('Debug log file will be created on first use.', YNM_DOMAIN);
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+
+        if ($password_is_set) {
+            // Password change option
+            echo '<div class="form-row">';
+            echo '<label for="ynm_admin_password">'.yourls__('Change Admin Password', YNM_DOMAIN).'</label>';
+            echo '<input type="password" id="ynm_admin_password" name="admin_password" placeholder="'.yourls__('Leave empty to keep current password', YNM_DOMAIN).'">';
+            echo '<div class="muted">'.yourls__('Enter new password only if you want to change it (minimum 6 characters)', YNM_DOMAIN).'</div>';
+            echo '</div>';
+        }
+
+        echo '<div class="actions-row">';
+        echo '<input type="submit" class="button button-primary" value="💾 '.yourls__('Save Advanced Settings', YNM_DOMAIN).'">';
+        echo '</div>';
+
+        echo '</form>';
+
+        // Reset to defaults section
+        echo '<div class="danger-zone">';
+        echo '<h4 style="color:#dc3232; margin-top:0;">⚠️ '.yourls__('Danger Zone', YNM_DOMAIN).'</h4>';
+
+        // Reset all settings
+        echo '<div style="margin-bottom:20px; padding-bottom:20px; border-bottom:1px solid #feb2b2;">';
+        echo '<h5 style="color:#dc3232; margin-bottom:5px;">🔄 '.yourls__('Reset All Settings', YNM_DOMAIN).'</h5>';
+        echo '<p class="muted">'.yourls__('This action will reset ALL plugin settings to their default values. Your admin password will be preserved, but all other configurations (recipients, SMTP settings, debug options) will be lost.', YNM_DOMAIN).'</p>';
+        echo '<form method="post" style="display:inline;" onsubmit="return confirm(\''.yourls__('Are you sure you want to reset all settings to defaults? This action cannot be undone.', YNM_DOMAIN).'\')">';
+        echo '<input type="hidden" name="ynm_action" value="reset">';
+        echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_reset')).'">';
+        echo '<input type="submit" class="button reset-button" value="🔄 '.yourls__('Reset to Defaults', YNM_DOMAIN).'">';
+        echo '</form>';
+        echo '</div>';
+
+        if ($password_is_set) {
+            // Reset admin password
+            echo '<div>';
+            echo '<h5 style="color:#dc3232; margin-bottom:5px;">🔐 '.yourls__('Reset Admin Password', YNM_DOMAIN).'</h5>';
+            echo '<p class="muted">'.yourls__('This will completely remove the admin password. You will be logged out and will need to set up a new password on the next page load.', YNM_DOMAIN).'</p>';
+            echo '<form method="post" style="display:inline;" onsubmit="return confirm(\''.yourls__('Are you sure you want to reset the admin password? You will be logged out immediately and will need to set up a new password.', YNM_DOMAIN).'\')">';
+            echo '<input type="hidden" name="ynm_action" value="reset_password">';
+            echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_reset_password')).'">';
+            echo '<input type="submit" class="button reset-button" value="🔐 '.yourls__('Reset Password', YNM_DOMAIN).'">';
+            echo '</form>';
+            echo '</div>';
+        }
+
+        echo '</div>';
+
+        // Close the form section that was opened earlier
+        echo '</div>';
+
+        // Test email form
+        echo '<div class="form-section">';
+        echo '<h3>✉️ '.yourls__('Test Email', YNM_DOMAIN).'</h3>';
+        echo '<form method="post">';
+        echo '<input type="hidden" name="ynm_action" value="test">';
+        echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr($nonce).'">';
+        echo '<div class="actions-row"><input type="submit" class="button" value="✉️ '.yourls__('Send test email', YNM_DOMAIN).'">';
+        $method = $s['use_smtp'] ? 'SMTP' : 'PHP mail()';
+        echo '<span class="muted">'.yourls__('Sends to all configured recipients using ', YNM_DOMAIN).$method.'</span></div>';
+
+        $confirm_expires = (int)($s['test_confirm_expires'] ?? 0);
+        $confirm_pending = !empty($s['test_confirm_token_hash']) && $confirm_expires > time();
+        $confirm_expired = !empty($s['test_confirm_token_hash']) && $confirm_expires <= time();
+
+        if (!empty($s['first_test_success_at'])) {
+            echo '<div class="muted" style="margin-top:8px;">✅ '.yourls__('Last successful test:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_success_at']).'</div>';
+        } else {
+            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('No successful test has been recorded yet.', YNM_DOMAIN).'</div>';
+        }
+
+        if (!empty($s['first_test_confirmed_at'])) {
+            echo '<div class="muted" style="margin-top:8px;">✅ '.yourls__('Last delivery confirmation:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_confirmed_at']).'</div>';
+        } elseif ($confirm_pending) {
+            echo '<div class="muted" style="margin-top:8px;">⏳ '.yourls__('Delivery confirmation pending. Click the link in the test email before', YNM_DOMAIN).' '.date('Y-m-d H:i:s', $confirm_expires).'.</div>';
+        } elseif ($confirm_expired) {
+            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('Delivery confirmation link expired. Send a new test email and click its confirmation link.', YNM_DOMAIN).'</div>';
+        } else {
+            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('No confirmed delivery yet. Send a test email and click the confirmation link to unlock password protection.', YNM_DOMAIN).'</div>';
+        }
+        echo '</form>';
+        echo '</div>';
+
+        // Debug log viewer
+        if ($s['debug_enabled']) {
+            echo '<div class="form-section">';
+            echo '<h3>🐛 Debug Log</h3>';
+            $debug_file = dirname(__DIR__) . '/debug.log';
+            if (file_exists($debug_file)) {
+                $file_size = filesize($debug_file);
+                $size_mb = round($file_size / 1024 / 1024, 2);
+                echo '<div class="muted">'.yourls__('File size: ', YNM_DOMAIN).$size_mb.' MB</div>';
+                
+                $content = file_get_contents($debug_file);
+                echo '<textarea readonly style="width:100%; height:300px; font-family:monospace; font-size:12px;">';
+                echo htmlspecialchars($content);
+                echo '</textarea>';
+                echo '<p><a href="'.yourls_admin_url('plugins.php?page=yn-change-notifier&clear_debug=1').'">Clear log</a> (empties the log file, does not delete it)</p>';
+            } else {
+                echo '<p>No debug log found yet. It will be created when the first event occurs.</p>';
+            }
+            echo '</div>';
+        }
+
+        echo ynm_render_footer();
+    }
+
+    /* =========================
+       Event handlers
+       ========================= */
+
+    public function on_created_filter($return, $url, $keyword, $title, $row_id = null) {
+        $s = self::get_settings();
+        if (!$s['notify_create']) return $return;
+        
+        if (is_array($return) && $return['status'] === 'success') {
+            $final_keyword = $return['url']['keyword'] ?? '';
+            $final_url = $return['url']['url'] ?? '';
+            $final_title = $return['url']['title'] ?? '';
+            
+            $this->debug_log("CREATE event triggered", [
+                'keyword' => $final_keyword,
+                'url' => $final_url,
+                'title' => $final_title
+            ]);
+            
+            $instance = defined('YOURLS_SITE') ? YOURLS_SITE : '';
+            $short    = $final_keyword ? rtrim($instance, '/').'/'.$final_keyword : '';
+
+            $payload = [
+                'event'    => 'CREATE',
+                'instance' => $instance,
+                'short'    => $short,
+                'keyword'  => $final_keyword,
+                'long'     => $final_url,
+                'title'    => $final_title,
+                'when'     => date('c'),
+                'by'       => $this->who(),
+                'ip'       => $this->ip(),
+            ];
+
+            $this->debug_log("Sending CREATE notification", $payload);
+
+            $this->send_mail(
+                $s['subject_prefix'].' New short URL: '.$final_keyword,
+                $this->fmt_body($payload)
+            );
+        }
+        
+        return $return;
+    }
+
+    public function on_edit_pre($url_new, $keyword_old, $newkeyword = '', $new_url_already_there = null, $keyword_is_ok = true) {
+        $info = yourls_get_keyword_infos($keyword_old);
+        $snapshot = [
+            'keyword'   => $keyword_old,
+            'title'     => is_array($info) ? ($info['title'] ?? null) : (is_object($info) ? ($info->title ?? null) : null),
+            'long'      => is_array($info) ? ($info['url'] ?? null) : (is_object($info) ? ($info->url ?? null) : null),
+            'new_long'  => is_string($url_new) ? $url_new : (is_array($url_new) ? ($url_new['url'] ?? reset($url_new) ?? null) : null),
+            'new_key'   => $newkeyword ?: null,
+            'new_title' => null,
+        ];
+        
+        $this->debug_log("EDIT pre-capture", $snapshot);
+        yourls_update_option(YNM_SNAP_EDIT, $snapshot);
+    }
+
+    public function on_edit_filter($return, $url, $keyword_old, $newkeyword = '', $title_new = '', $new_url_already_there = null, $keyword_is_ok = true) {
+        $s = self::get_settings();
+        if (!$s['notify_edit']) return $return;
+
+        $snap = yourls_get_option(YNM_SNAP_EDIT);
+        if (!is_array($snap)) $snap = [];
+
+        $final_keyword = $newkeyword ?: $keyword_old;
+        $info = $final_keyword ? yourls_get_keyword_infos($final_keyword) : null;
+        
+        $final_long = null;
+        $final_title = null;
+        if (is_array($info)) {
+            $final_long = $info['url'] ?? null;
+            $final_title = $info['title'] ?? null;
+        } elseif (is_object($info)) {
+            $final_long = $info->url ?? null;
+            $final_title = $info->title ?? null;
+        }
+        
+        if (!$final_long) {
+            $final_long = is_string($url) ? $url : (is_array($url) ? ($url['url'] ?? reset($url) ?? null) : null);
+        }
+        if (!$final_title) {
+            $final_title = $title_new ?: null;
+        }
+
+        $snap['keyword'] = $keyword_old;
+
+        $instance = defined('YOURLS_SITE') ? YOURLS_SITE : '';
+        $short    = $final_keyword ? (rtrim($instance, '/').'/'.$final_keyword) : '';
+
+        $payload = [
+            'event'    => 'EDIT',
+            'instance' => $instance,
+            'short'    => $short,
+            'keyword'  => $final_keyword,
+            'long'     => $final_long,
+            'title'    => $final_title,
+            'when'     => date('c'),
+            'by'       => $this->who(),
+            'ip'       => $this->ip(),
+            'before'   => $snap,
+        ];
+
+        $this->debug_log("EDIT event triggered", $payload);
+
+        $this->send_mail(
+            $s['subject_prefix'].' Short URL edited: '.$final_keyword,
+            $this->fmt_body($payload)
+        );
+
+        if (function_exists('yourls_delete_option')) {
+            yourls_delete_option(YNM_SNAP_EDIT);
+        }
+
+        return $return;
+    }
+
+    public function capture_delete_on_admin_init() {
+        $action = $_REQUEST['action'] ?? null;
+        if ($action !== 'delete') return;
+
+        $this->debug_log("DELETE capture initiated", $_REQUEST);
+
+        $keywords = [];
+        if (isset($_REQUEST['keyword'])) {
+            $v = $_REQUEST['keyword'];
+            $keywords = is_array($v) ? $v : [$v];
+        }
+        
+        $keywords = array_unique(array_filter($keywords));
+        if (empty($keywords)) return;
+
+        $map = yourls_get_option(YNM_SNAP_DEL);
+        $map = is_array($map) ? $map : [];
+
+        foreach ($keywords as $k) {
+            $k = trim((string)$k);
+            if ($k === '') continue;
+            
+            $info = yourls_get_keyword_infos($k);
+            if ($info) {
+                if (is_array($info)) {
+                    $map[$k] = [
+                        'long'  => $info['url'] ?? null,
+                        'title' => $info['title'] ?? null,
+                    ];
+                } elseif (is_object($info)) {
+                    $map[$k] = [
+                        'long'  => $info->url ?? null,
+                        'title' => $info->title ?? null,
+                    ];
+                }
+                $this->debug_log("Captured DELETE data for keyword '$k'", $map[$k]);
+            }
+        }
+
+        yourls_update_option(YNM_SNAP_DEL, $map);
+    }
+
+    public function on_delete_direct($args) {
+        $s = self::get_settings();
+        if (!$s['notify_delete']) return;
+
+        $keyword = is_array($args) ? ($args[0] ?? null) : $args;
+        if (!$keyword) return;
+
+        $this->debug_log("DELETE event triggered for keyword", $keyword);
+
+        $info = yourls_get_keyword_infos($keyword);
+        $long = null;
+        $title = null;
+        
+        if ($info && is_array($info)) {
+            $long = $info['url'] ?? null;
+            $title = $info['title'] ?? null;
+            $this->debug_log("Retrieved DELETE data from database", ['url' => $long, 'title' => $title]);
+        } elseif ($info && is_object($info)) {
+            $long = $info->url ?? null;
+            $title = $info->title ?? null;
+            $this->debug_log("Retrieved DELETE data from database (object)", ['url' => $long, 'title' => $title]);
+        } else {
+            $map = yourls_get_option(YNM_SNAP_DEL);
+            $snap = (is_array($map) ? $map : [])[$keyword] ?? null;
+            
+            if ($snap) {
+                $long = $snap['long'] ?? null;
+                $title = $snap['title'] ?? null;
+                $this->debug_log("Retrieved DELETE data from snapshot", ['url' => $long, 'title' => $title]);
+            } else {
+                $this->debug_log("No DELETE data available for keyword", $keyword);
+            }
+        }
+
+        $instance = defined('YOURLS_SITE') ? YOURLS_SITE : '';
+        $short = $keyword ? rtrim($instance, '/').'/'.$keyword : '';
+
+        $payload = [
+            'event'    => 'DELETE',
+            'instance' => $instance,
+            'short'    => $short,
+            'keyword'  => $keyword,
+            'long'     => $long,
+            'title'    => $title,
+            'when'     => date('c'),
+            'by'       => $this->who(),
+            'ip'       => $this->ip(),
+        ];
+
+        $this->debug_log("Sending DELETE notification", $payload);
+
+        $this->send_mail(
+            $s['subject_prefix'].' Short URL deleted: '.$keyword,
+            $this->fmt_body($payload)
+        );
+    }
+
+    /* =========================
+       Helper methods
+       ========================= */
+
+    private function debug_log($message, $data = null) {
+        $settings = self::get_settings();
+        if (!$settings['debug_enabled']) {
+            return;
+        }
+
+        $log_file = dirname(__DIR__) . '/debug.log';
+        
+        if (file_exists($log_file) && filesize($log_file) > (5 * 1024 * 1024)) {
+            $this->rotate_debug_log($log_file);
+        }
+
+        $timestamp = date('Y-m-d H:i:s');
+        $log_entry = "[$timestamp] $message";
+        if ($data !== null) {
+            $log_entry .= "\n" . print_r($data, true);
+        }
+        $log_entry .= "\n" . str_repeat('-', 50) . "\n";
+        
+        $result = @file_put_contents($log_file, $log_entry, FILE_APPEND | LOCK_EX);
+        
+        if ($result === false) {
+            if (!file_exists($log_file)) {
+                $success = @touch($log_file);
+                if ($success) {
+                    @chmod($log_file, 0644);
+                    @file_put_contents($log_file, $log_entry, FILE_APPEND | LOCK_EX);
+                }
+            }
+        }
+    }
+
+    private function check_debug_file_status($log_file): array {
+        $status = [
+            'exists' => false,
+            'writable' => false,
+            'directory_writable' => false
+        ];
+        
+        $directory = dirname($log_file);
+        $status['directory_writable'] = is_writable($directory);
+        
+        if (file_exists($log_file)) {
+            $status['exists'] = true;
+            $status['writable'] = is_writable($log_file);
+        } else {
+            $test_result = @file_put_contents($log_file, "test\n", LOCK_EX);
+            if ($test_result !== false) {
+                $status['writable'] = true;
+                @unlink($log_file);
+            } else {
+                $status['writable'] = $status['directory_writable'];
+            }
+        }
+        
+        return $status;
+    }
+
+    private function rotate_debug_log($log_file) {
+        if (!file_exists($log_file)) return;
+
+        $content = file_get_contents($log_file);
+        $content_length = strlen($content);
+        
+        if ($content_length > (2 * 1024 * 1024)) {
+            $keep_size = 2 * 1024 * 1024;
+            $new_content = substr($content, -$keep_size);
+            
+            $first_separator = strpos($new_content, "\n" . str_repeat('-', 50) . "\n");
+            if ($first_separator !== false) {
+                $new_content = substr($new_content, $first_separator + 52);
+            }
+            
+            $rotation_marker = "[" . date('Y-m-d H:i:s') . "] === LOG ROTATED (size exceeded 5MB) ===\n" . str_repeat('-', 50) . "\n";
+            $new_content = $rotation_marker . $new_content;
+            
+            file_put_contents($log_file, $new_content, LOCK_EX);
+        }
+    }
+
+    private function who(): string {
+        if (function_exists('yourls_get_current_user')) {
+            $u = yourls_get_current_user();
+            if (is_object($u)) {
+                foreach (['user_login','login','username','display_name','user_email'] as $p) {
+                    if (isset($u->$p) && $u->$p) {
+                        return 'user: ' . $u->$p;
+                    }
+                }
+                if (method_exists($u, 'get')) {
+                    foreach (['user_login','display_name','user_email'] as $k) {
+                        $val = $u->get($k);
+                        if (!empty($val)) {
+                            return 'user: ' . $val;
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach (['PHP_AUTH_USER','REMOTE_USER','HTTP_REMOTE_USER','HTTP_X_FORWARDED_USER','HTTP_X_AUTH_USER'] as $h) {
+            if (!empty($_SERVER[$h])) {
+                return 'user: ' . trim((string)$_SERVER[$h]);
+            }
+        }
+
+        if (function_exists('yourls_cookie_name')) {
+            $cname = yourls_cookie_name();
+            if (!empty($_COOKIE[$cname]) && is_string($_COOKIE[$cname])) {
+                if (preg_match('/^([^:\\|]+)[:\\|]/', $_COOKIE[$cname], $m)) {
+                    return 'user: ' . $m[1];
+                }
+            }
+        }
+
+        if (!empty($_COOKIE['yourls_username'])) {
+            return 'user: ' . $_COOKIE['yourls_username'];
+        }
+
+        if (function_exists('yourls_is_valid_user') && yourls_is_valid_user()) {
+            return 'user: (authenticated)';
+        }
+        return 'API/anonymous';
+    }
+
+    private function ip(): string {
+        foreach (['HTTP_CF_CONNECTING_IP','HTTP_X_FORWARDED_FOR','REMOTE_ADDR'] as $h) {
+            if (!empty($_SERVER[$h])) {
+                $raw = $_SERVER[$h];
+                $ip  = is_string($raw) ? trim(explode(',', $raw)[0]) : '';
+                if ($ip) return $ip;
+            }
+        }
+        return '(unknown)';
+    }
+
+    private function fmt_body(array $p): string {
+        $lines = [];
+        $lines[] = "Event:   {$p['event']}";
+        $lines[] = "When:    {$p['when']}";
+        if (!empty($p['by']))        $lines[] = "By:      {$p['by']}";
+        if (!empty($p['ip']))        $lines[] = "IP:      {$p['ip']}";
+        if (!empty($p['instance']))  $lines[] = "Instance: {$p['instance']}";
+        if (!empty($p['short']))     $lines[] = "Short:   {$p['short']}";
+        if (!empty($p['keyword']))   $lines[] = "Keyword: {$p['keyword']}";
+        if (!empty($p['title']))     $lines[] = "Title:   {$p['title']}";
+        if (!empty($p['long']))      $lines[] = "Target:  {$p['long']}";
+        if (!empty($p['admin']))     $lines[] = "Admin:   {$p['admin']}";
+
+        if (!empty($p['before']) && is_array($p['before'])) {
+            $lines[] = "";
+            $lines[] = "Before (snapshot):";
+            $labelMap = ['keyword' => 'keyword', 'title' => 'title', 'long' => 'target'];
+            foreach ($labelMap as $k => $label) {
+                if (!empty($p['before'][$k])) {
+                    $lines[] = "  {$label}: {$p['before'][$k]}";
+                }
+            }
+        }
+        return implode("\n", $lines) . "\n";
+    }
+
+    // Enhanced email sending with SMTP support
+    private function send_mail(string $subject, string $body): void {
+        $s = self::get_settings();
+        $to = $this->get_valid_recipients($s);
+        if (empty($to)) return;
+
+        if ($s['use_smtp'] && !empty($s['smtp_host'])) {
+            $this->send_mail_smtp($to, $subject, $body);
+        } else {
+            $this->send_mail_php($to, $subject, $body);
+        }
+    }
+
+    // Send email using PHP mail() function
+    private function send_mail_php(array $to, string $subject, string $body): void {
+        $headers = [
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+            'X-YOURLS-Notify-Mail: 1',
+            'X-YOURLS-Notifier-Version: ' . YNM_VERSION,
+        ];
+        
+        foreach ($to as $addr) {
+            @mail($addr, $subject, $body, implode("\r\n", $headers));
+        }
+        
+        $this->debug_log("Email sent via PHP mail()", ['recipients' => count($to), 'subject' => $subject]);
+    }
+
+    // Send email using SMTP
+    private function send_mail_smtp(array $to, string $subject, string $body): void {
+        $s = self::get_settings();
+        
+        try {
+            // Create socket connection
+            $context = stream_context_create();
+            
+            if ($s['smtp_security'] === 'ssl') {
+                $host = 'ssl://' . $s['smtp_host'];
+            } else {
+                $host = $s['smtp_host'];
+            }
+            
+            $this->debug_log("Connecting to SMTP", ['host' => $host, 'port' => $s['smtp_port']]);
+            
+            $smtp = stream_socket_client(
+                $host . ':' . $s['smtp_port'],
+                $errno,
+                $errstr,
+                30,
+                STREAM_CLIENT_CONNECT,
+                $context
+            );
+            
+            if (!$smtp) {
+                throw new Exception("Failed to connect to SMTP server: $errstr ($errno)");
+            }
+            
+            // Read initial response
+            $response = fgets($smtp, 512);
+            $this->debug_log("SMTP initial response", $response);
+            
+            // EHLO command
+            $hostname = $_SERVER['SERVER_NAME'] ?? 'localhost';
+            fwrite($smtp, "EHLO $hostname\r\n");
+            $response = $this->read_smtp_response($smtp);
+            $this->debug_log("EHLO response", $response);
+            
+            // STARTTLS if required
+            if ($s['smtp_security'] === 'tls') {
+                fwrite($smtp, "STARTTLS\r\n");
+                $response = $this->read_smtp_response($smtp);
+                $this->debug_log("STARTTLS response", $response);
+                
+                if (!stream_socket_enable_crypto($smtp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                    throw new Exception("Failed to enable TLS encryption");
+                }
+                
+                // Send EHLO again after STARTTLS
+                fwrite($smtp, "EHLO $hostname\r\n");
+                $response = $this->read_smtp_response($smtp);
+                $this->debug_log("EHLO after TLS response", $response);
+            }
+            
+            // Authentication
+            if ($s['smtp_auth'] && !empty($s['smtp_username'])) {
+                fwrite($smtp, "AUTH LOGIN\r\n");
+                $response = $this->read_smtp_response($smtp);
+                $this->debug_log("AUTH LOGIN response", $response);
+                
+                fwrite($smtp, base64_encode($s['smtp_username']) . "\r\n");
+                $response = $this->read_smtp_response($smtp);
+                $this->debug_log("Username response", $response);
+                
+                $password = !empty($s['smtp_password']) ? base64_decode($s['smtp_password']) : '';
+                fwrite($smtp, base64_encode($password) . "\r\n");
+                $response = $this->read_smtp_response($smtp);
+                $this->debug_log("Password response", $response);
+            }
+            
+            // Send email
+            $from_email = !empty($s['smtp_from_email']) ? $s['smtp_from_email'] : $s['smtp_username'];
+            $from_name = !empty($s['smtp_from_name']) ? $s['smtp_from_name'] : 'YOURLS Change Notifier';
+            
+            fwrite($smtp, "MAIL FROM: <$from_email>\r\n");
+            $response = $this->read_smtp_response($smtp);
+            $this->debug_log("MAIL FROM response", $response);
+            
+            foreach ($to as $recipient) {
+                fwrite($smtp, "RCPT TO: <$recipient>\r\n");
+                $response = $this->read_smtp_response($smtp);
+                $this->debug_log("RCPT TO response for $recipient", $response);
+            }
+            
+            fwrite($smtp, "DATA\r\n");
+            $response = $this->read_smtp_response($smtp);
+            $this->debug_log("DATA response", $response);
+            
+            // Email headers and body
+            $email_data = "From: $from_name <$from_email>\r\n";
+            $email_data .= "To: " . implode(', ', $to) . "\r\n";
+            $email_data .= "Subject: $subject\r\n";
+            $email_data .= "MIME-Version: 1.0\r\n";
+            $email_data .= "Content-Type: text/plain; charset=UTF-8\r\n";
+            $email_data .= "X-YOURLS-Notify-Mail: 1\r\n";
+            $email_data .= "X-YOURLS-Notifier-Version: " . YNM_VERSION . "\r\n";
+            $email_data .= "\r\n";
+            $email_data .= $body . "\r\n.\r\n";
+            
+            fwrite($smtp, $email_data);
+            $response = $this->read_smtp_response($smtp);
+            $this->debug_log("Email sent response", $response);
+            
+            // Quit
+            fwrite($smtp, "QUIT\r\n");
+            fclose($smtp);
+            
+            $this->debug_log("Email sent via SMTP successfully", [
+                'recipients' => count($to),
+                'subject' => $subject,
+                'server' => $s['smtp_host'] . ':' . $s['smtp_port']
+            ]);
+            
+        } catch (Exception $e) {
+            $this->debug_log("SMTP Error", $e->getMessage());
+            // Fallback to PHP mail
+            $this->debug_log("Falling back to PHP mail()");
+            $this->send_mail_php($to, $subject, $body);
+        }
+    }
+
+    // Helper to read SMTP responses
+    private function read_smtp_response($smtp): string {
+        $response = '';
+        while ($line = fgets($smtp, 512)) {
+            $response .= $line;
+            if (substr($line, 3, 1) === ' ') break; // End of multi-line response
+        }
+        return trim($response);
+    }
+
+    // Enhanced test email
+    private function send_test(): array {
+        $s = self::get_settings();
+        $to = $this->get_valid_recipients($s);
+        if (empty($to)) {
+            return ['ok'=>false,'text'=>yourls__('Please set at least one recipient, then save settings and try again.', YNM_DOMAIN)];
+        }
+
+        if (!function_exists('random_bytes')) {
+            return ['ok' => false, 'text' => yourls__('Cannot generate a secure confirmation link on this server.', YNM_DOMAIN)];
+        }
+        try {
+            $token = bin2hex(random_bytes(32));
+        } catch (Exception $e) {
+            return ['ok' => false, 'text' => yourls__('Cannot generate a secure confirmation link on this server.', YNM_DOMAIN)];
+        }
+        
+        $method = $s['use_smtp'] ? 'SMTP' : 'PHP mail()';
+        $subject = $s['subject_prefix'].' [TEST] Change Notifier mail function is configured';
+        $confirm_url = yourls_admin_url('plugins.php?page=yn-change-notifier&ynm_confirm_test=' . rawurlencode($token));
+        $confirm_expires = time() + 1800; // 30 minutes
+        $body = "This is a test email from YOURLS Change Notifier (v".YNM_VERSION.").\n";
+        $body .= "Email method: $method\n";
+        if ($s['use_smtp']) {
+            $body .= "SMTP server: {$s['smtp_host']}:{$s['smtp_port']}\n";
+        }
+        $body .= "Time: ".date('c')."\n";
+        $body .= "\nDelivery confirmation is required to enable password protection.\n";
+        $body .= "Click this link to confirm this test email reached your inbox:\n$confirm_url\n\n";
+        $body .= "This confirmation link expires in 30 minutes.\n";
+        
+        $this->debug_log("Sending test email via $method", ['recipients' => $to]);
+        
+        // Send using current method
+        $this->send_mail($subject, $body);
+        $s['first_test_success_at'] = time();
+        $s['first_test_confirmed_at'] = 0;
+        $s['test_confirm_token_hash'] = hash('sha256', $token);
+        $s['test_confirm_expires'] = $confirm_expires;
+        $s['test_confirm_recipients_hash'] = $this->recipients_hash($to);
+        yourls_update_option(YNM_OPT_KEY, $s);
+        
+        $this->debug_log("Test email sent", [
+            'method' => $method,
+            'recipient_count' => count($to),
+            'confirm_expires_at' => $confirm_expires,
+        ]);
+        
+        return [
+            'ok' => true, // We assume success as send_mail has fallback
+            'text' => yourls__("Test email sent via $method. Please click the confirmation link in the email to verify delivery.", YNM_DOMAIN)
+        ];
+    }
+}
