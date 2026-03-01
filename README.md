@@ -14,12 +14,13 @@ Never miss a creation, edit, or deletion again — whether it happens through ad
 - **Dual email delivery**: PHP mail() or full SMTP configuration
 - **SMTP support** with SSL/TLS encryption and authentication  
 - **Password-protected admin panel** for secure configuration
-- **Progressive password protection** (enabled after successful notification setup)
+- **Progressive password protection** (enabled only after successful test send + delivery confirmation click)
 - **Smart data capture** with before/after snapshots for edits
 - **Advanced debug logging** with automatic rotation (5MB limit)
 - **User identification** with IP tracking and authentication details
 - **Customizable email templates** with detailed event information
 - **Reset options** for settings and admin password
+- **Externalized admin assets** (dedicated CSS/JS files for easier maintenance)
 - **Fully internationalized** (i18n-ready)
 
 ---
@@ -42,6 +43,7 @@ Never miss a creation, edit, or deletion again — whether it happens through ad
 Password protection is enabled only after:
 - at least one valid recipient email is configured
 - at least one test email has been sent successfully
+- the delivery confirmation link in that test email has been clicked
 
 This avoids lockouts during initial setup and enables secure password recovery via emailed reset link.
 
@@ -65,7 +67,7 @@ Configure external SMTP servers with advanced options:
 ### 🐛 Debug & Troubleshooting
 - **Debug logging**: Track email delivery and plugin events
 - **Automatic log rotation**: Keeps log files manageable (rotates at 5MB)
-- **Test email function**: Verify your configuration works
+- **Test email function**: Verify mail transport and confirm real inbox delivery via one-time link
 - **Reset options**: Start fresh when needed
 
 ---
@@ -102,6 +104,7 @@ Target:   https://example.com/very-long-url-here
 - **Session management** for convenient access
 - **Shared-hosting resilience** with signed auth-cookie fallback when PHP sessions are unreliable
 - **Email-based password recovery** with one-time expiring reset links
+- **Delivery confirmation flow** with one-time expiring test confirmation links
 - **Password reset option** to return to initial setup
 
 ### Smart Data Capture

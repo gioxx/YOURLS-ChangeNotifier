@@ -1,0 +1,34 @@
+.plugin-header { display:flex; flex-direction:column; align-items:flex-start; }
+.plugin-title {
+    margin:0; padding:0; font-family:Arial,sans-serif; font-size:2em; font-weight:bold;
+    background:-webkit-linear-gradient(#0073aa,#00a8e6);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+}
+.plugin-version { font-size:.85em; color:#666; margin-top:4px; }
+.form-section { margin:30px 0; padding:20px; border:1px solid #ddd; background:#f9f9f9; border-radius:5px; }
+.form-row { margin-bottom:15px; }
+.form-row label { display:block; font-weight:bold; margin-bottom:5px; font-size:1.1em; }
+.form-row input[type="text"], .form-row textarea, .form-row input[type="password"], .form-row input[type="email"], .form-row input[type="number"], .form-row select { width:100%; max-width:600px; padding:5px; }
+.form-row.half { display:inline-block; width:48%; margin-right:2%; vertical-align:top; }
+.form-row.quarter { display:inline-block; width:23%; margin-right:2%; vertical-align:top; }
+#ynm_recipients { font-size:15px; line-height:1.45; }
+input[type="submit"].button { padding:8px 14px; font-size:13px; border-radius:5px; cursor:pointer; }
+.actions-row { display:flex; gap:10px; align-items:center; }
+.checkboxes label { margin-right:14px; font-size:1.1em; }
+.checkboxes .group-title { display:block; margin-bottom:6px; }
+.checkboxes .inline { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.checkboxes .inline label { display:inline-flex; align-items:center; margin:0; font-weight:normal; }
+.plugin-footer { margin-top:40px; padding-top:20px; border-top:1px solid #ddd; font-size:.9em; color:#666; text-align:center; opacity:.85; }
+.plugin-footer a { color:#0073aa; text-decoration:none; }
+.plugin-footer a:hover { text-decoration:underline; }
+.plugin-footer .github-icon { vertical-align:middle; width:16px; height:16px; margin-right:4px; display:inline-block; }
+.muted { color:#666; font-size:.95em; }
+.debug-info { background:#fff3cd; border:1px solid #ffeaa7; border-radius:4px; padding:10px; margin-top:10px; }
+.auth-section { max-width:400px; margin:50px auto; text-align:center; }
+.auth-section input[type="password"] { max-width:300px; margin:10px auto; display:block; }
+.logout-link { float:right; font-size:0.9em; }
+.smtp-section { background:#f0f8ff; border:1px solid #87ceeb; }
+.smtp-disabled { opacity:0.6; }
+.danger-zone { background:#fff5f5; border:1px solid #feb2b2; border-radius:4px; padding:15px; margin-top:20px; }
+.reset-button { background:#dc3232 !important; color:white !important; border-color:#dc3232 !important; }
+.reset-button:hover { background:#c53030 !important; }

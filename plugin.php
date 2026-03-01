@@ -31,7 +31,7 @@ function ynm_boot() {
 
     yourls_register_plugin_page(
         'yn-change-notifier',
-        yourls__('YOURLS Change Notifier', YNM_DOMAIN),
+        yourls__('Manage notifications', YNM_DOMAIN),
         'ynm_render_plugin_page'
     );
 

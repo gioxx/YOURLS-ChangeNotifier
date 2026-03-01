@@ -34,6 +34,10 @@ class YN_Notify_Mail {
             'smtp_from_email'=> '',
             'smtp_from_name' => 'YOURLS Change Notifier',
             'first_test_success_at'   => 0,
+            'first_test_confirmed_at' => 0,
+            'test_confirm_token_hash' => '',
+            'test_confirm_expires'    => 0,
+            'test_confirm_recipients_hash' => '',
             'password_reset_token_hash' => '',
             'password_reset_expires'    => 0,
         ];
@@ -63,9 +67,29 @@ class YN_Notify_Mail {
             'smtp_from_email'=> trim((string)($in['smtp_from_email'] ?? '')),
             'smtp_from_name' => trim((string)($in['smtp_from_name'] ?? 'YOURLS Change Notifier')),
             'first_test_success_at'   => (int)($current['first_test_success_at'] ?? 0),
+            'first_test_confirmed_at' => (int)($current['first_test_confirmed_at'] ?? 0),
+            'test_confirm_token_hash' => (string)($current['test_confirm_token_hash'] ?? ''),
+            'test_confirm_expires'    => (int)($current['test_confirm_expires'] ?? 0),
+            'test_confirm_recipients_hash' => (string)($current['test_confirm_recipients_hash'] ?? ''),
             'password_reset_token_hash' => (string)($current['password_reset_token_hash'] ?? ''),
             'password_reset_expires'    => (int)($current['password_reset_expires'] ?? 0),
         ];
+
+        $normalize_recipient_list = static function (string $value): string {
+            $parts = array_filter(array_map('trim', explode(',', strtolower($value))));
+            sort($parts, SORT_STRING);
+            return implode(',', $parts);
+        };
+        $normalized_current_recipients = $normalize_recipient_list((string)($current['recipients'] ?? ''));
+        $normalized_new_recipients = $normalize_recipient_list((string)($s['recipients'] ?? ''));
+        if ($normalized_current_recipients !== $normalized_new_recipients) {
+            // Recipient changes invalidate previous delivery confirmations.
+            $s['first_test_success_at'] = 0;
+            $s['first_test_confirmed_at'] = 0;
+            $s['test_confirm_token_hash'] = '';
+            $s['test_confirm_expires'] = 0;
+            $s['test_confirm_recipients_hash'] = '';
+        }
         
         // Handle SMTP password separately (only update if provided)
         if (!empty($in['smtp_password'])) {
@@ -89,6 +113,31 @@ class YN_Notify_Mail {
     private function ensure_session_started(): void {
         if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
             @session_start();
+        }
+    }
+
+    private function render_admin_assets(): void {
+        $base_dir = dirname(__DIR__);
+        $css_path = $base_dir . '/assets/admin.css';
+        $js_path  = $base_dir . '/assets/admin.js';
+
+        if (function_exists('yourls_plugin_url')) {
+            if (file_exists($css_path)) {
+                $css_url = yourls_plugin_url($css_path) . '?ver=' . rawurlencode(YNM_VERSION);
+                echo '<link rel="stylesheet" href="' . yourls_esc_attr($css_url) . '">';
+            }
+            if (file_exists($js_path)) {
+                $js_url = yourls_plugin_url($js_path) . '?ver=' . rawurlencode(YNM_VERSION);
+                echo '<script src="' . yourls_esc_attr($js_url) . '"></script>';
+            }
+            return;
+        }
+
+        if (file_exists($css_path)) {
+            echo '<style>' . file_get_contents($css_path) . '</style>';
+        }
+        if (file_exists($js_path)) {
+            echo '<script>' . file_get_contents($js_path) . '</script>';
         }
     }
 
@@ -231,10 +280,26 @@ class YN_Notify_Mail {
         }));
     }
 
+    private function recipients_hash(array $recipients): string {
+        $normalized = array_map(static function ($email) {
+            return strtolower(trim((string)$email));
+        }, $recipients);
+        sort($normalized, SORT_STRING);
+        return hash('sha256', implode(',', $normalized));
+    }
+
     private function can_enable_password_protection(array $settings): bool {
         $has_recipient = !empty($this->get_valid_recipients($settings));
         $has_successful_test = !empty($settings['first_test_success_at']);
-        return $has_recipient && $has_successful_test;
+        $has_confirmed_test = !empty($settings['first_test_confirmed_at']);
+        return $has_recipient && $has_successful_test && $has_confirmed_test;
+    }
+
+    private function clear_test_confirmation_token(array $settings): void {
+        $settings['test_confirm_token_hash'] = '';
+        $settings['test_confirm_expires'] = 0;
+        $settings['test_confirm_recipients_hash'] = '';
+        yourls_update_option(YNM_OPT_KEY, $settings);
     }
 
     private function clear_password_reset_token(array $settings): void {
@@ -303,7 +368,41 @@ class YN_Notify_Mail {
         $this->set_auth_cookie(false);
         $this->set_persistent_auth(false, $settings);
 
-        return ['ok' => true, 'text' => yourls__('Admin password reset completed. Configure and test email, then set a new password.', YNM_DOMAIN)];
+        return ['ok' => true, 'text' => yourls__('Admin password reset completed. Configure email, send and confirm a test email, then set a new password.', YNM_DOMAIN)];
+    }
+
+    private function consume_test_confirmation_token(string $token): array {
+        $settings = self::get_settings();
+        $stored_hash = (string)($settings['test_confirm_token_hash'] ?? '');
+        $expires = (int)($settings['test_confirm_expires'] ?? 0);
+
+        if ($stored_hash === '' || $expires <= time()) {
+            if ($stored_hash !== '' || $expires !== 0) {
+                $this->clear_test_confirmation_token($settings);
+            }
+            return ['ok' => false, 'text' => yourls__('Test confirmation link is invalid or expired. Please send a new test email.', YNM_DOMAIN)];
+        }
+
+        $current_recipients_hash = $this->recipients_hash($this->get_valid_recipients($settings));
+        $stored_recipients_hash = (string)($settings['test_confirm_recipients_hash'] ?? '');
+        if ($stored_recipients_hash === '' || $stored_recipients_hash !== $current_recipients_hash) {
+            $this->clear_test_confirmation_token($settings);
+            return ['ok' => false, 'text' => yourls__('Recipients changed since the test email was sent. Please send and confirm a new test email.', YNM_DOMAIN)];
+        }
+
+        $provided_hash = hash('sha256', $token);
+        $valid = function_exists('hash_equals') ? hash_equals($stored_hash, $provided_hash) : $stored_hash === $provided_hash;
+        if (!$valid) {
+            return ['ok' => false, 'text' => yourls__('Test confirmation link is invalid or expired. Please send a new test email.', YNM_DOMAIN)];
+        }
+
+        $settings['first_test_confirmed_at'] = time();
+        $settings['test_confirm_token_hash'] = '';
+        $settings['test_confirm_expires'] = 0;
+        $settings['test_confirm_recipients_hash'] = '';
+        yourls_update_option(YNM_OPT_KEY, $settings);
+
+        return ['ok' => true, 'text' => yourls__('Test email delivery confirmed. Password protection can now be enabled.', YNM_DOMAIN)];
     }
 
     public function render_admin_page(): void {
@@ -317,6 +416,16 @@ class YN_Notify_Mail {
 
         if (isset($_GET['ynm_reset_token']) && is_string($_GET['ynm_reset_token'])) {
             $msg = $this->consume_password_reset_token(trim($_GET['ynm_reset_token']));
+            $result = ['success' => $msg['ok']];
+            $message = $msg['text'];
+            $settings = self::get_settings();
+            $password_is_set = !empty($settings['admin_password']);
+            $password_prereq_ready = $this->can_enable_password_protection($settings);
+            $is_authenticated = $password_is_set ? $this->is_authenticated() : true;
+        }
+
+        if (isset($_GET['ynm_confirm_test']) && is_string($_GET['ynm_confirm_test'])) {
+            $msg = $this->consume_test_confirmation_token(trim($_GET['ynm_confirm_test']));
             $result = ['success' => $msg['ok']];
             $message = $msg['text'];
             $settings = self::get_settings();
@@ -345,7 +454,7 @@ class YN_Notify_Mail {
                         $is_authenticated = true;
                         $settings = self::get_settings();
                     } elseif (!$password_prereq_ready) {
-                        $message = yourls__('Before enabling password protection, add at least one recipient and send a successful test email.', YNM_DOMAIN);
+                        $message = yourls__('Before enabling password protection, add at least one recipient, send a test email, and confirm delivery from the email link.', YNM_DOMAIN);
                         $result = ['success' => false];
                     } else {
                         $message = yourls__('Password must be at least 6 characters long.', YNM_DOMAIN);
@@ -462,6 +571,7 @@ class YN_Notify_Mail {
         $is_authenticated = $password_is_set ? $this->is_authenticated() : true;
         $valid_recipients = $this->get_valid_recipients($settings);
         $has_successful_test = !empty($settings['first_test_success_at']);
+        $has_confirmed_test = !empty($settings['first_test_confirmed_at']);
 
         // Handle debug log clear (only if authenticated)
         if ($is_authenticated && isset($_GET['clear_debug'])) {
@@ -474,43 +584,7 @@ class YN_Notify_Mail {
             return;
         }
 
-        // Admin page styles
-        echo '<style>
-            .plugin-header { display:flex; flex-direction:column; align-items:flex-start; }
-            .plugin-title {
-                margin:0; padding:0; font-family:Arial,sans-serif; font-size:2em; font-weight:bold;
-                background:-webkit-linear-gradient(#0073aa,#00a8e6);
-                -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-            }
-            .plugin-version { font-size:.85em; color:#666; margin-top:4px; }
-            .form-section { margin:30px 0; padding:20px; border:1px solid #ddd; background:#f9f9f9; border-radius:5px; }
-            .form-row { margin-bottom:15px; }
-            .form-row label { display:block; font-weight:bold; margin-bottom:5px; font-size:1.1em; }
-            .form-row input[type="text"], .form-row textarea, .form-row input[type="password"], .form-row input[type="email"], .form-row input[type="number"], .form-row select { width:100%; max-width:600px; padding:5px; }
-            .form-row.half { display:inline-block; width:48%; margin-right:2%; vertical-align:top; }
-            .form-row.quarter { display:inline-block; width:23%; margin-right:2%; vertical-align:top; }
-            #ynm_recipients { font-size:15px; line-height:1.45; }
-            input[type="submit"].button { padding:8px 14px; font-size:13px; border-radius:5px; cursor:pointer; }
-            .actions-row { display:flex; gap:10px; align-items:center; }
-            .checkboxes label { margin-right:14px; font-size:1.1em; }
-            .checkboxes .group-title { display:block; margin-bottom:6px; }
-            .checkboxes .inline { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
-            .checkboxes .inline label { display:inline-flex; align-items:center; margin:0; font-weight:normal; }
-            .plugin-footer { margin-top:40px; padding-top:20px; border-top:1px solid #ddd; font-size:.9em; color:#666; text-align:center; opacity:.85; }
-            .plugin-footer a { color:#0073aa; text-decoration:none; }
-            .plugin-footer a:hover { text-decoration:underline; }
-            .plugin-footer .github-icon { vertical-align:middle; width:16px; height:16px; margin-right:4px; display:inline-block; }
-            .muted { color:#666; font-size:.95em; }
-            .debug-info { background:#fff3cd; border:1px solid #ffeaa7; border-radius:4px; padding:10px; margin-top:10px; }
-            .auth-section { max-width:400px; margin:50px auto; text-align:center; }
-            .auth-section input[type="password"] { max-width:300px; margin:10px auto; display:block; }
-            .logout-link { float:right; font-size:0.9em; }
-            .smtp-section { background:#f0f8ff; border:1px solid #87ceeb; }
-            .smtp-disabled { opacity:0.6; }
-            .danger-zone { background:#fff5f5; border:1px solid #feb2b2; border-radius:4px; padding:15px; margin-top:20px; }
-            .reset-button { background:#dc3232 !important; color:white !important; border-color:#dc3232 !important; }
-            .reset-button:hover { background:#c53030 !important; }
-        </style>';
+        $this->render_admin_assets();
 
         // Plugin header
         echo '<div class="plugin-header">';
@@ -522,7 +596,7 @@ class YN_Notify_Mail {
             echo '<div class="logout-link">';
             echo '<form method="post" style="display:inline;">';
             echo '<input type="hidden" name="ynm_action" value="logout">';
-            echo '<input type="submit" value="🚪 '.yourls__('Logout', YNM_DOMAIN).'" class="button" style="font-size:11px; padding:4px 8px;">';
+            echo '<input type="submit" value="🚪 '.yourls__('Logout from Change Notifier', YNM_DOMAIN).'" class="button" style="font-size:11px; padding:4px 8px;">';
             echo '</form>';
             echo '</div>';
         }
@@ -542,10 +616,11 @@ class YN_Notify_Mail {
         if (!$password_is_set && !$password_prereq_ready) {
             echo '<div class="form-section">';
             echo '<h3>🔓 '.yourls__('Password protection available after initial configuration', YNM_DOMAIN).'</h3>';
-            echo '<p class="muted">'.yourls__('To avoid lockout, password protection will be enabled only after you configure at least one valid recipient and send one successful test email.', YNM_DOMAIN).'</p>';
+            echo '<p class="muted">'.yourls__('To avoid lockout, password protection will be enabled only after you configure at least one valid recipient, send a test email, and confirm delivery using the confirmation link from that email.', YNM_DOMAIN).'</p>';
             echo '<ul class="muted" style="margin:10px 0 0 18px;">';
             echo '<li>'.($valid_recipients ? '✅ ' : '❌ ').yourls__('At least one valid recipient email configured', YNM_DOMAIN).'</li>';
             echo '<li>'.($has_successful_test ? '✅ ' : '❌ ').yourls__('At least one successful test email sent', YNM_DOMAIN).'</li>';
+            echo '<li>'.($has_confirmed_test ? '✅ ' : '❌ ').yourls__('At least one test email delivery confirmed via link click', YNM_DOMAIN).'</li>';
             echo '</ul>';
             echo '</div>';
         }
@@ -721,29 +796,6 @@ class YN_Notify_Mail {
         echo '</form>';
         echo '</div>';
 
-        // JavaScript for SMTP toggles
-        echo '<script>
-        function toggleSmtp() {
-            const useSmtp = document.querySelector(\'input[name="use_smtp"]:checked\').value === "1";
-            const smtpSettings = document.getElementById("smtp-settings");
-            if (useSmtp) {
-                smtpSettings.classList.remove("smtp-disabled");
-            } else {
-                smtpSettings.classList.add("smtp-disabled");
-            }
-        }
-        
-        function toggleSmtpAuth() {
-            const requireAuth = document.querySelector(\'input[name="smtp_auth"]\').checked;
-            const smtpAuth = document.getElementById("smtp-auth");
-            if (requireAuth) {
-                smtpAuth.classList.remove("smtp-disabled");
-            } else {
-                smtpAuth.classList.add("smtp-disabled");
-            }
-        }
-        </script>';
-
         // Advanced Settings
         echo '<div class="form-section">';
         echo '<h3>⚙️ '.yourls__('Advanced Settings', YNM_DOMAIN).'</h3>';
@@ -848,10 +900,25 @@ class YN_Notify_Mail {
         echo '<div class="actions-row"><input type="submit" class="button" value="✉️ '.yourls__('Send test email', YNM_DOMAIN).'">';
         $method = $s['use_smtp'] ? 'SMTP' : 'PHP mail()';
         echo '<span class="muted">'.yourls__('Sends to all configured recipients using ', YNM_DOMAIN).$method.'</span></div>';
+
+        $confirm_expires = (int)($s['test_confirm_expires'] ?? 0);
+        $confirm_pending = !empty($s['test_confirm_token_hash']) && $confirm_expires > time();
+        $confirm_expired = !empty($s['test_confirm_token_hash']) && $confirm_expires <= time();
+
         if (!empty($s['first_test_success_at'])) {
             echo '<div class="muted" style="margin-top:8px;">✅ '.yourls__('Last successful test:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_success_at']).'</div>';
         } else {
             echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('No successful test has been recorded yet.', YNM_DOMAIN).'</div>';
+        }
+
+        if (!empty($s['first_test_confirmed_at'])) {
+            echo '<div class="muted" style="margin-top:8px;">✅ '.yourls__('Last delivery confirmation:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_confirmed_at']).'</div>';
+        } elseif ($confirm_pending) {
+            echo '<div class="muted" style="margin-top:8px;">⏳ '.yourls__('Delivery confirmation pending. Click the link in the test email before', YNM_DOMAIN).' '.date('Y-m-d H:i:s', $confirm_expires).'.</div>';
+        } elseif ($confirm_expired) {
+            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('Delivery confirmation link expired. Send a new test email and click its confirmation link.', YNM_DOMAIN).'</div>';
+        } else {
+            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('No confirmed delivery yet. Send a test email and click the confirmation link to unlock password protection.', YNM_DOMAIN).'</div>';
         }
         echo '</form>';
         echo '</div>';
@@ -1432,28 +1499,50 @@ class YN_Notify_Mail {
         if (empty($to)) {
             return ['ok'=>false,'text'=>yourls__('Please set at least one recipient, then save settings and try again.', YNM_DOMAIN)];
         }
+
+        if (!function_exists('random_bytes')) {
+            return ['ok' => false, 'text' => yourls__('Cannot generate a secure confirmation link on this server.', YNM_DOMAIN)];
+        }
+        try {
+            $token = bin2hex(random_bytes(32));
+        } catch (Exception $e) {
+            return ['ok' => false, 'text' => yourls__('Cannot generate a secure confirmation link on this server.', YNM_DOMAIN)];
+        }
         
         $method = $s['use_smtp'] ? 'SMTP' : 'PHP mail()';
         $subject = $s['subject_prefix'].' [TEST] Change Notifier mail function is configured';
+        $confirm_url = yourls_admin_url('plugins.php?page=yn-change-notifier&ynm_confirm_test=' . rawurlencode($token));
+        $confirm_expires = time() + 1800; // 30 minutes
         $body = "This is a test email from YOURLS Change Notifier (v".YNM_VERSION.").\n";
         $body .= "Email method: $method\n";
         if ($s['use_smtp']) {
             $body .= "SMTP server: {$s['smtp_host']}:{$s['smtp_port']}\n";
         }
         $body .= "Time: ".date('c')."\n";
+        $body .= "\nDelivery confirmation is required to enable password protection.\n";
+        $body .= "Click this link to confirm this test email reached your inbox:\n$confirm_url\n\n";
+        $body .= "This confirmation link expires in 30 minutes.\n";
         
         $this->debug_log("Sending test email via $method", ['recipients' => $to]);
         
         // Send using current method
         $this->send_mail($subject, $body);
         $s['first_test_success_at'] = time();
+        $s['first_test_confirmed_at'] = 0;
+        $s['test_confirm_token_hash'] = hash('sha256', $token);
+        $s['test_confirm_expires'] = $confirm_expires;
+        $s['test_confirm_recipients_hash'] = $this->recipients_hash($to);
         yourls_update_option(YNM_OPT_KEY, $s);
         
-        $this->debug_log("Test email sent", ['method' => $method, 'recipient_count' => count($to)]);
+        $this->debug_log("Test email sent", [
+            'method' => $method,
+            'recipient_count' => count($to),
+            'confirm_expires_at' => $confirm_expires,
+        ]);
         
         return [
             'ok' => true, // We assume success as send_mail has fallback
-            'text' => yourls__("Test email sent via $method.", YNM_DOMAIN)
+            'text' => yourls__("Test email sent via $method. Please click the confirmation link in the email to verify delivery.", YNM_DOMAIN)
         ];
     }
 }
