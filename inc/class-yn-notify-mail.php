@@ -33,6 +33,9 @@ class YN_Notify_Mail {
             'smtp_password'  => '',
             'smtp_from_email'=> '',
             'smtp_from_name' => 'YOURLS Change Notifier',
+            'resend_api_key'  => '',
+            'resend_from_email' => '',
+            'resend_from_name'  => 'YOURLS Change Notifier',
             'first_test_success_at'   => 0,
             'first_test_confirmed_at' => 0,
             'test_confirm_token_hash' => '',
@@ -58,7 +61,7 @@ class YN_Notify_Mail {
             'notify_delete'  => empty($in['notify_delete']) ? 0 : 1,
             'subject_prefix' => trim((string)($in['subject_prefix'] ?? '[YOURLS]')),
             'debug_enabled'  => empty($in['debug_enabled']) ? 0 : 1,
-            'use_smtp'       => empty($in['use_smtp']) ? 0 : 1,
+            'use_smtp'       => in_array((int)($in['use_smtp'] ?? 0), [0, 1, 2]) ? (int)$in['use_smtp'] : 0,
             'smtp_host'      => trim((string)($in['smtp_host'] ?? '')),
             'smtp_port'      => max(1, min(65535, (int)($in['smtp_port'] ?? 587))),
             'smtp_security'  => in_array($in['smtp_security'] ?? '', ['none', 'ssl', 'tls']) ? $in['smtp_security'] : 'tls',
@@ -93,12 +96,20 @@ class YN_Notify_Mail {
         
         // Handle SMTP password separately (only update if provided)
         if (!empty($in['smtp_password'])) {
-            $s['smtp_password'] = base64_encode($in['smtp_password']); // Simple encoding for storage
+            $s['smtp_password'] = base64_encode($in['smtp_password']);
         } else {
-            // Keep existing SMTP password
             $s['smtp_password'] = $current['smtp_password'];
         }
-        
+
+        // Handle Resend settings
+        $s['resend_from_email'] = trim((string)($in['resend_from_email'] ?? ''));
+        $s['resend_from_name']  = trim((string)($in['resend_from_name'] ?? 'YOURLS Change Notifier'));
+        if (!empty($in['resend_api_key'])) {
+            $s['resend_api_key'] = base64_encode($in['resend_api_key']);
+        } else {
+            $s['resend_api_key'] = $current['resend_api_key'];
+        }
+
         // Only update admin password if a new one is provided
         if (!empty($in['admin_password'])) {
             $s['admin_password'] = password_hash($in['admin_password'], PASSWORD_DEFAULT);
@@ -123,11 +134,11 @@ class YN_Notify_Mail {
 
         if (function_exists('yourls_plugin_url')) {
             if (file_exists($css_path)) {
-                $css_url = yourls_plugin_url($css_path) . '?ver=' . rawurlencode(YNM_VERSION);
+                $css_url = yourls_plugin_url($css_path) . '?ver=' . filemtime($css_path);
                 echo '<link rel="stylesheet" href="' . yourls_esc_attr($css_url) . '">';
             }
             if (file_exists($js_path)) {
-                $js_url = yourls_plugin_url($js_path) . '?ver=' . rawurlencode(YNM_VERSION);
+                $js_url = yourls_plugin_url($js_path) . '?ver=' . filemtime($js_path);
                 echo '<script src="' . yourls_esc_attr($js_url) . '"></script>';
             }
             return;
@@ -585,18 +596,19 @@ class YN_Notify_Mail {
         }
 
         $this->render_admin_assets();
+        ynm_show_update_notice();
 
         // Plugin header
         echo '<div class="plugin-header">';
-        echo '<h2 class="plugin-title">🔔 '.yourls__('YOURLS Change Notifier', YNM_DOMAIN).'</h2>';
+        echo '<h2 class="ynm-title">🔔 <span class="ynm-title-text">'.yourls__('YOURLS Change Notifier', YNM_DOMAIN).'</span></h2>';
         echo '<p class="plugin-version">'.yourls__('Version: ', YNM_DOMAIN).YNM_VERSION.'</p>';
-        
+
         // Show logout link only when password protection is active
         if ($password_is_set && $is_authenticated) {
             echo '<div class="logout-link">';
-            echo '<form method="post" style="display:inline;">';
+            echo '<form method="post" class="ynm-form-inline">';
             echo '<input type="hidden" name="ynm_action" value="logout">';
-            echo '<input type="submit" value="🚪 '.yourls__('Logout from Change Notifier', YNM_DOMAIN).'" class="button" style="font-size:11px; padding:4px 8px;">';
+            echo '<button type="submit" class="button">🚪 '.yourls__('Logout from Change Notifier', YNM_DOMAIN).'</button>';
             echo '</form>';
             echo '</div>';
         }
@@ -605,19 +617,19 @@ class YN_Notify_Mail {
         // Show messages
         $notice = '';
         if (!empty($message)) {
-            $notice = '<div style="margin:10px 0; padding:10px; border-left:4px solid '.(!empty($result['success']) ? '#46b450' : '#dc3232').'; background: '.(!empty($result['success']) ? '#e6ffed' : '#fbeaea').';">'.$message.'</div>';
+            $notice = '<div class="ynm-notice '.(!empty($result['success']) ? 'ynm-notice-success' : 'ynm-notice-error').'">'.$message.'</div>';
         }
         if ($notice) echo $notice;
 
         if ($password_is_set && empty($valid_recipients)) {
-            echo '<div style="margin:10px 0; padding:10px; border-left:4px solid #ffb900; background:#fff8e5;">⚠️ '.yourls__('Password protection is active but no valid recipient email is configured. Saving recipient settings is blocked until at least one valid recipient is provided.', YNM_DOMAIN).'</div>';
+            echo '<div class="ynm-notice ynm-notice-warning">⚠️ '.yourls__('Password protection is active but no valid recipient email is configured. Saving recipient settings is blocked until at least one valid recipient is provided.', YNM_DOMAIN).'</div>';
         }
 
         if (!$password_is_set && !$password_prereq_ready) {
             echo '<div class="form-section">';
             echo '<h3>🔓 '.yourls__('Password protection available after initial configuration', YNM_DOMAIN).'</h3>';
             echo '<p class="muted">'.yourls__('To avoid lockout, password protection will be enabled only after you configure at least one valid recipient, send a test email, and confirm delivery using the confirmation link from that email.', YNM_DOMAIN).'</p>';
-            echo '<ul class="muted" style="margin:10px 0 0 18px;">';
+            echo '<ul class="muted ynm-prereq-list">';
             echo '<li>'.($valid_recipients ? '✅ ' : '❌ ').yourls__('At least one valid recipient email configured', YNM_DOMAIN).'</li>';
             echo '<li>'.($has_successful_test ? '✅ ' : '❌ ').yourls__('At least one successful test email sent', YNM_DOMAIN).'</li>';
             echo '<li>'.($has_confirmed_test ? '✅ ' : '❌ ').yourls__('At least one test email delivery confirmed via link click', YNM_DOMAIN).'</li>';
@@ -634,7 +646,7 @@ class YN_Notify_Mail {
             echo '<input type="hidden" name="ynm_action" value="setup">';
             echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_setup')).'">';
             echo '<input type="password" name="admin_password" placeholder="'.yourls__('Enter admin password (min 6 chars)', YNM_DOMAIN).'" required minlength="6">';
-            echo '<br><input type="submit" class="button button-primary" value="🔒 '.yourls__('Set Password & Continue', YNM_DOMAIN).'">';
+            echo '<br><button type="submit" class="button">🔒 '.yourls__('Set Password & Continue', YNM_DOMAIN).'</button>';
             echo '</form>';
             echo '</div>';
         }
@@ -648,12 +660,12 @@ class YN_Notify_Mail {
             echo '<input type="hidden" name="ynm_action" value="login">';
             echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_login')).'">';
             echo '<input type="password" name="admin_password" placeholder="'.yourls__('Admin password', YNM_DOMAIN).'" required>';
-            echo '<br><input type="submit" class="button button-primary" value="🔓 '.yourls__('Access Settings', YNM_DOMAIN).'">';
+            echo '<br><button type="submit" class="button">🔓 '.yourls__('Access Settings', YNM_DOMAIN).'</button>';
             echo '</form>';
-            echo '<form method="post" style="margin-top:10px;">';
+            echo '<form method="post" class="ynm-mt-form">';
             echo '<input type="hidden" name="ynm_action" value="forgot_password">';
             echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_forgot_password')).'">';
-            echo '<input type="submit" class="button" value="📨 '.yourls__('Forgot password? Send reset link', YNM_DOMAIN).'">';
+            echo '<button type="submit" class="button">📨 '.yourls__('Forgot password? Send reset link', YNM_DOMAIN).'</button>';
             echo '</form>';
             echo '</div>';
             echo ynm_render_footer();
@@ -671,8 +683,8 @@ class YN_Notify_Mail {
         echo '<input type="hidden" name="ynm_action" value="save">';
         echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr($nonce).'">';
 
-        // Copy all SMTP settings to maintain them
-        echo '<input type="hidden" name="use_smtp" value="'.($s['use_smtp'] ? '1' : '0').'">';
+        // Copy all email settings to maintain them
+        echo '<input type="hidden" name="use_smtp" value="'.(int)$s['use_smtp'].'">';
         echo '<input type="hidden" name="smtp_host" value="'.yourls_esc_attr($s['smtp_host']).'">';
         echo '<input type="hidden" name="smtp_port" value="'.yourls_esc_attr($s['smtp_port']).'">';
         echo '<input type="hidden" name="smtp_security" value="'.yourls_esc_attr($s['smtp_security']).'">';
@@ -680,6 +692,8 @@ class YN_Notify_Mail {
         echo '<input type="hidden" name="smtp_username" value="'.yourls_esc_attr($s['smtp_username']).'">';
         echo '<input type="hidden" name="smtp_from_email" value="'.yourls_esc_attr($s['smtp_from_email']).'">';
         echo '<input type="hidden" name="smtp_from_name" value="'.yourls_esc_attr($s['smtp_from_name']).'">';
+        echo '<input type="hidden" name="resend_from_email" value="'.yourls_esc_attr($s['resend_from_email']).'">';
+        echo '<input type="hidden" name="resend_from_name" value="'.yourls_esc_attr($s['resend_from_name']).'">';
         echo '<input type="hidden" name="debug_enabled" value="'.($s['debug_enabled'] ? '1' : '0').'">';
 
         echo '<div class="form-row">';
@@ -703,7 +717,7 @@ class YN_Notify_Mail {
         echo '</div>';
 
         echo '<div class="actions-row">';
-        echo '<input type="submit" class="button button-primary" value="💾 '.yourls__('Save Basic Settings', YNM_DOMAIN).'">';
+        echo '<button type="submit" class="button">💾 '.yourls__('Save Basic Settings', YNM_DOMAIN).'</button>';
         echo '</div>';
 
         echo '</form>';
@@ -727,12 +741,13 @@ class YN_Notify_Mail {
         echo '<div class="form-row checkboxes">';
         echo '<label class="group-title">'.yourls__('Email Method', YNM_DOMAIN).'</label>';
         echo '<div class="inline">';
-        echo '<label><input type="radio" name="use_smtp" value="0" '.(!$s['use_smtp']?'checked':'').' onchange="toggleSmtp()"> '.yourls__('Use PHP mail() function', YNM_DOMAIN).'</label>';
-        echo '<label><input type="radio" name="use_smtp" value="1" '.($s['use_smtp']?'checked':'').' onchange="toggleSmtp()"> '.yourls__('Use SMTP server', YNM_DOMAIN).'</label>';
+        echo '<label><input type="radio" name="use_smtp" value="0" '.((int)$s['use_smtp'] === 0 ? 'checked' : '').' onchange="toggleSmtp()"> '.yourls__('Use PHP mail() function', YNM_DOMAIN).'</label>';
+        echo '<label><input type="radio" name="use_smtp" value="1" '.((int)$s['use_smtp'] === 1 ? 'checked' : '').' onchange="toggleSmtp()"> '.yourls__('Use SMTP server', YNM_DOMAIN).'</label>';
+        echo '<label><input type="radio" name="use_smtp" value="2" '.((int)$s['use_smtp'] === 2 ? 'checked' : '').' onchange="toggleSmtp()"> '.yourls__('Use Resend', YNM_DOMAIN).'</label>';
         echo '</div>';
         echo '</div>';
 
-        echo '<div id="smtp-settings" class="'.(!$s['use_smtp'] ? 'smtp-disabled' : '').'">';
+        echo '<div id="smtp-settings" class="'.((int)$s['use_smtp'] !== 1 ? 'smtp-disabled' : '').'">';
         
         echo '<div class="form-row">';
         echo '<label for="ynm_smtp_from_email">'.yourls__('From Email Address', YNM_DOMAIN).'</label>';
@@ -764,7 +779,7 @@ class YN_Notify_Mail {
         echo '</select>';
         echo '</div>';
         
-        echo '<div style="clear:both;"></div>';
+        echo '<div class="ynm-clear"></div>';
 
         echo '<div class="form-row checkboxes">';
         echo '<label class="group-title">'.yourls__('Authentication', YNM_DOMAIN).'</label>';
@@ -784,13 +799,34 @@ class YN_Notify_Mail {
         echo '<input type="password" id="ynm_smtp_password" name="smtp_password" placeholder="'.yourls__('Leave empty to keep current', YNM_DOMAIN).'">';
         echo '<div class="muted">'.yourls__('Use app passwords for Gmail/Outlook', YNM_DOMAIN).'</div>';
         echo '</div>';
-        echo '<div style="clear:both;"></div>';
+        echo '<div class="ynm-clear"></div>';
+        echo '</div>';
+
+        echo '</div>';
+
+        echo '<div id="resend-settings" class="'.((int)$s['use_smtp'] !== 2 ? 'smtp-disabled' : '').'">';
+
+        echo '<div class="form-row">';
+        echo '<label for="ynm_resend_from_email">'.yourls__('From Email Address', YNM_DOMAIN).'</label>';
+        echo '<input type="email" id="ynm_resend_from_email" name="resend_from_email" value="'.yourls_esc_attr($s['resend_from_email']).'" placeholder="notifications@yourdomain.com">';
+        echo '<div class="muted">'.yourls__('Must be a verified sender address or domain in your Resend account', YNM_DOMAIN).'</div>';
+        echo '</div>';
+
+        echo '<div class="form-row">';
+        echo '<label for="ynm_resend_from_name">'.yourls__('From Name', YNM_DOMAIN).'</label>';
+        echo '<input type="text" id="ynm_resend_from_name" name="resend_from_name" value="'.yourls_esc_attr($s['resend_from_name']).'" placeholder="YOURLS Change Notifier">';
+        echo '</div>';
+
+        echo '<div class="form-row">';
+        echo '<label for="ynm_resend_api_key">'.yourls__('Resend API Key', YNM_DOMAIN).'</label>';
+        echo '<input type="password" id="ynm_resend_api_key" name="resend_api_key" placeholder="'.yourls__('Leave empty to keep current', YNM_DOMAIN).(!empty($s['resend_api_key']) ? ' ('.yourls__('key saved', YNM_DOMAIN).')' : '').'">';
+        echo '<div class="muted">'.yourls__('Get your API key from', YNM_DOMAIN).' <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer">resend.com/api-keys</a></div>';
         echo '</div>';
 
         echo '</div>';
 
         echo '<div class="actions-row">';
-        echo '<input type="submit" class="button button-primary" value="💾 '.yourls__('Save Email Settings', YNM_DOMAIN).'">';
+        echo '<button type="submit" class="button">💾 '.yourls__('Save Email Settings', YNM_DOMAIN).'</button>';
         echo '</div>';
 
         echo '</form>';
@@ -809,7 +845,7 @@ class YN_Notify_Mail {
         echo '<input type="hidden" name="notify_edit" value="'.($s['notify_edit'] ? '1' : '0').'">';
         echo '<input type="hidden" name="notify_delete" value="'.($s['notify_delete'] ? '1' : '0').'">';
         echo '<input type="hidden" name="subject_prefix" value="'.yourls_esc_attr($s['subject_prefix']).'">';
-        echo '<input type="hidden" name="use_smtp" value="'.($s['use_smtp'] ? '1' : '0').'">';
+        echo '<input type="hidden" name="use_smtp" value="'.(int)$s['use_smtp'].'">';
         echo '<input type="hidden" name="smtp_host" value="'.yourls_esc_attr($s['smtp_host']).'">';
         echo '<input type="hidden" name="smtp_port" value="'.yourls_esc_attr($s['smtp_port']).'">';
         echo '<input type="hidden" name="smtp_security" value="'.yourls_esc_attr($s['smtp_security']).'">';
@@ -817,6 +853,8 @@ class YN_Notify_Mail {
         echo '<input type="hidden" name="smtp_username" value="'.yourls_esc_attr($s['smtp_username']).'">';
         echo '<input type="hidden" name="smtp_from_email" value="'.yourls_esc_attr($s['smtp_from_email']).'">';
         echo '<input type="hidden" name="smtp_from_name" value="'.yourls_esc_attr($s['smtp_from_name']).'">';
+        echo '<input type="hidden" name="resend_from_email" value="'.yourls_esc_attr($s['resend_from_email']).'">';
+        echo '<input type="hidden" name="resend_from_name" value="'.yourls_esc_attr($s['resend_from_name']).'">';
 
         // Debug logging option
         echo '<div class="form-row checkboxes">';
@@ -833,7 +871,7 @@ class YN_Notify_Mail {
             echo '⚠️ '.yourls__('Debug logging is active. The log file will be automatically rotated when it exceeds 5MB.', YNM_DOMAIN);
             
             if (!$debug_status['writable']) {
-                echo '<br><span style="color:#dc3232;">❌ '.yourls__('Warning: Cannot write to debug log file. Check directory permissions or create debug.log file into plugin directory and change permissions (chmod 666).', YNM_DOMAIN).'</span>';
+                echo '<br><span class="ynm-error-text">❌ '.yourls__('Warning: Cannot write to debug log file. Check directory permissions or create debug.log file into plugin directory and change permissions (chmod 666).', YNM_DOMAIN).'</span>';
             } elseif ($debug_status['exists']) {
                 echo '<br>✅ '.yourls__('Debug log file is writable.', YNM_DOMAIN);
             } else {
@@ -853,35 +891,35 @@ class YN_Notify_Mail {
         }
 
         echo '<div class="actions-row">';
-        echo '<input type="submit" class="button button-primary" value="💾 '.yourls__('Save Advanced Settings', YNM_DOMAIN).'">';
+        echo '<button type="submit" class="button">💾 '.yourls__('Save Advanced Settings', YNM_DOMAIN).'</button>';
         echo '</div>';
 
         echo '</form>';
 
         // Reset to defaults section
         echo '<div class="danger-zone">';
-        echo '<h4 style="color:#dc3232; margin-top:0;">⚠️ '.yourls__('Danger Zone', YNM_DOMAIN).'</h4>';
+        echo '<h4 class="ynm-danger-heading">⚠️ '.yourls__('Danger Zone', YNM_DOMAIN).'</h4>';
 
         // Reset all settings
-        echo '<div style="margin-bottom:20px; padding-bottom:20px; border-bottom:1px solid #feb2b2;">';
-        echo '<h5 style="color:#dc3232; margin-bottom:5px;">🔄 '.yourls__('Reset All Settings', YNM_DOMAIN).'</h5>';
+        echo '<div class="ynm-danger-subsection">';
+        echo '<h5 class="ynm-danger-subheading">🔄 '.yourls__('Reset All Settings', YNM_DOMAIN).'</h5>';
         echo '<p class="muted">'.yourls__('This action will reset ALL plugin settings to their default values. Your admin password will be preserved, but all other configurations (recipients, SMTP settings, debug options) will be lost.', YNM_DOMAIN).'</p>';
-        echo '<form method="post" style="display:inline;" onsubmit="return confirm(\''.yourls__('Are you sure you want to reset all settings to defaults? This action cannot be undone.', YNM_DOMAIN).'\')">';
+        echo '<form method="post" class="ynm-form-inline" onsubmit="return confirm(\''.yourls__('Are you sure you want to reset all settings to defaults? This action cannot be undone.', YNM_DOMAIN).'\')">';
         echo '<input type="hidden" name="ynm_action" value="reset">';
         echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_reset')).'">';
-        echo '<input type="submit" class="button reset-button" value="🔄 '.yourls__('Reset to Defaults', YNM_DOMAIN).'">';
+        echo '<button type="submit" class="button reset-button">🔄 '.yourls__('Reset to Defaults', YNM_DOMAIN).'</button>';
         echo '</form>';
         echo '</div>';
 
         if ($password_is_set) {
             // Reset admin password
             echo '<div>';
-            echo '<h5 style="color:#dc3232; margin-bottom:5px;">🔐 '.yourls__('Reset Admin Password', YNM_DOMAIN).'</h5>';
+            echo '<h5 class="ynm-danger-subheading">🔐 '.yourls__('Reset Admin Password', YNM_DOMAIN).'</h5>';
             echo '<p class="muted">'.yourls__('This will completely remove the admin password. You will be logged out and will need to set up a new password on the next page load.', YNM_DOMAIN).'</p>';
-            echo '<form method="post" style="display:inline;" onsubmit="return confirm(\''.yourls__('Are you sure you want to reset the admin password? You will be logged out immediately and will need to set up a new password.', YNM_DOMAIN).'\')">';
+            echo '<form method="post" class="ynm-form-inline" onsubmit="return confirm(\''.yourls__('Are you sure you want to reset the admin password? You will be logged out immediately and will need to set up a new password.', YNM_DOMAIN).'\')">';
             echo '<input type="hidden" name="ynm_action" value="reset_password">';
             echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr(yourls_create_nonce('ynm_reset_password')).'">';
-            echo '<input type="submit" class="button reset-button" value="🔐 '.yourls__('Reset Password', YNM_DOMAIN).'">';
+            echo '<button type="submit" class="button reset-button">🔐 '.yourls__('Reset Password', YNM_DOMAIN).'</button>';
             echo '</form>';
             echo '</div>';
         }
@@ -897,8 +935,8 @@ class YN_Notify_Mail {
         echo '<form method="post">';
         echo '<input type="hidden" name="ynm_action" value="test">';
         echo '<input type="hidden" name="nonce" value="'.yourls_esc_attr($nonce).'">';
-        echo '<div class="actions-row"><input type="submit" class="button" value="✉️ '.yourls__('Send test email', YNM_DOMAIN).'">';
-        $method = $s['use_smtp'] ? 'SMTP' : 'PHP mail()';
+        echo '<div class="actions-row"><button type="submit" class="button">✉️ '.yourls__('Send test email', YNM_DOMAIN).'</button>';
+        $method = (int)$s['use_smtp'] === 1 ? 'SMTP' : ((int)$s['use_smtp'] === 2 ? 'Resend' : 'PHP mail()');
         echo '<span class="muted">'.yourls__('Sends to all configured recipients using ', YNM_DOMAIN).$method.'</span></div>';
 
         $confirm_expires = (int)($s['test_confirm_expires'] ?? 0);
@@ -906,19 +944,19 @@ class YN_Notify_Mail {
         $confirm_expired = !empty($s['test_confirm_token_hash']) && $confirm_expires <= time();
 
         if (!empty($s['first_test_success_at'])) {
-            echo '<div class="muted" style="margin-top:8px;">✅ '.yourls__('Last successful test:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_success_at']).'</div>';
+            echo '<div class="ynm-muted-row">✅ '.yourls__('Last successful test:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_success_at']).'</div>';
         } else {
-            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('No successful test has been recorded yet.', YNM_DOMAIN).'</div>';
+            echo '<div class="ynm-muted-row">⚠️ '.yourls__('No successful test has been recorded yet.', YNM_DOMAIN).'</div>';
         }
 
         if (!empty($s['first_test_confirmed_at'])) {
-            echo '<div class="muted" style="margin-top:8px;">✅ '.yourls__('Last delivery confirmation:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_confirmed_at']).'</div>';
+            echo '<div class="ynm-muted-row">✅ '.yourls__('Last delivery confirmation:', YNM_DOMAIN).' '.date('Y-m-d H:i:s', (int)$s['first_test_confirmed_at']).'</div>';
         } elseif ($confirm_pending) {
-            echo '<div class="muted" style="margin-top:8px;">⏳ '.yourls__('Delivery confirmation pending. Click the link in the test email before', YNM_DOMAIN).' '.date('Y-m-d H:i:s', $confirm_expires).'.</div>';
+            echo '<div class="ynm-muted-row">⏳ '.yourls__('Delivery confirmation pending. Click the link in the test email before', YNM_DOMAIN).' '.date('Y-m-d H:i:s', $confirm_expires).'.</div>';
         } elseif ($confirm_expired) {
-            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('Delivery confirmation link expired. Send a new test email and click its confirmation link.', YNM_DOMAIN).'</div>';
+            echo '<div class="ynm-muted-row">⚠️ '.yourls__('Delivery confirmation link expired. Send a new test email and click its confirmation link.', YNM_DOMAIN).'</div>';
         } else {
-            echo '<div class="muted" style="margin-top:8px;">⚠️ '.yourls__('No confirmed delivery yet. Send a test email and click the confirmation link to unlock password protection.', YNM_DOMAIN).'</div>';
+            echo '<div class="ynm-muted-row">⚠️ '.yourls__('No confirmed delivery yet. Send a test email and click the confirmation link to unlock password protection.', YNM_DOMAIN).'</div>';
         }
         echo '</form>';
         echo '</div>';
@@ -934,7 +972,7 @@ class YN_Notify_Mail {
                 echo '<div class="muted">'.yourls__('File size: ', YNM_DOMAIN).$size_mb.' MB</div>';
                 
                 $content = file_get_contents($debug_file);
-                echo '<textarea readonly style="width:100%; height:300px; font-family:monospace; font-size:12px;">';
+                echo '<textarea readonly class="ynm-debug-textarea">';
                 echo htmlspecialchars($content);
                 echo '</textarea>';
                 echo '<p><a href="'.yourls_admin_url('plugins.php?page=yn-change-notifier&clear_debug=1').'">Clear log</a> (empties the log file, does not delete it)</p>';
@@ -1337,8 +1375,10 @@ class YN_Notify_Mail {
         $to = $this->get_valid_recipients($s);
         if (empty($to)) return;
 
-        if ($s['use_smtp'] && !empty($s['smtp_host'])) {
+        if ((int)$s['use_smtp'] === 1 && !empty($s['smtp_host'])) {
             $this->send_mail_smtp($to, $subject, $body);
+        } elseif ((int)$s['use_smtp'] === 2 && !empty($s['resend_api_key'])) {
+            $this->send_mail_resend($to, $subject, $body);
         } else {
             $this->send_mail_php($to, $subject, $body);
         }
@@ -1358,6 +1398,49 @@ class YN_Notify_Mail {
         }
         
         $this->debug_log("Email sent via PHP mail()", ['recipients' => count($to), 'subject' => $subject]);
+    }
+
+    // Send email via Resend API
+    private function send_mail_resend(array $to, string $subject, string $body): void {
+        $s       = self::get_settings();
+        $api_key = !empty($s['resend_api_key']) ? base64_decode($s['resend_api_key']) : '';
+
+        if (empty($api_key)) {
+            $this->debug_log("Resend error: no API key configured, falling back to PHP mail()");
+            $this->send_mail_php($to, $subject, $body);
+            return;
+        }
+
+        $from_email = !empty($s['resend_from_email']) ? $s['resend_from_email'] : '';
+        $from_name  = !empty($s['resend_from_name'])  ? $s['resend_from_name']  : 'YOURLS Change Notifier';
+        $from       = $from_name . ' <' . $from_email . '>';
+
+        $payload = json_encode([
+            'from'    => $from,
+            'to'      => $to,
+            'subject' => $subject,
+            'text'    => $body,
+        ]);
+
+        $ctx = stream_context_create(['http' => [
+            'method'  => 'POST',
+            'header'  => implode("\r\n", [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $api_key,
+            ]),
+            'content' => $payload,
+            'timeout' => 10,
+        ]]);
+
+        $result = @file_get_contents('https://api.resend.com/emails', false, $ctx);
+
+        if ($result === false) {
+            $this->debug_log("Resend API call failed, falling back to PHP mail()");
+            $this->send_mail_php($to, $subject, $body);
+            return;
+        }
+
+        $this->debug_log("Email sent via Resend", ['recipients' => count($to), 'subject' => $subject, 'response' => $result]);
     }
 
     // Send email using SMTP
@@ -1509,7 +1592,7 @@ class YN_Notify_Mail {
             return ['ok' => false, 'text' => yourls__('Cannot generate a secure confirmation link on this server.', YNM_DOMAIN)];
         }
         
-        $method = $s['use_smtp'] ? 'SMTP' : 'PHP mail()';
+        $method = (int)$s['use_smtp'] === 1 ? 'SMTP' : ((int)$s['use_smtp'] === 2 ? 'Resend' : 'PHP mail()');
         $subject = $s['subject_prefix'].' [TEST] Change Notifier mail function is configured';
         $confirm_url = yourls_admin_url('plugins.php?page=yn-change-notifier&ynm_confirm_test=' . rawurlencode($token));
         $confirm_expires = time() + 1800; // 30 minutes

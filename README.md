@@ -11,8 +11,10 @@ Never miss a creation, edit, or deletion again — whether it happens through ad
 ## 🚀 Features
 
 - **Real-time email notifications** for URL creation, editing, and deletion
-- **Dual email delivery**: PHP mail() or full SMTP configuration
-- **SMTP support** with SSL/TLS encryption and authentication  
+- **Triple email delivery**: PHP mail(), full SMTP, or [Resend](https://resend.com) API
+- **SMTP support** with SSL/TLS encryption and authentication
+- **Resend API support** — modern transactional email without SMTP configuration
+- **Automatic update check** with badge and in-page banner when a new version is available
 - **Password-protected admin panel** for secure configuration
 - **Progressive password protection** (enabled only after successful test send + delivery confirmation click)
 - **Smart data capture** with before/after snapshots for edits
@@ -59,10 +61,17 @@ Use your server's built-in mail functionality — simple and works out of the bo
 
 #### SMTP Configuration
 Configure external SMTP servers with advanced options:
-- **Host & Port**: Connect to a SMTP server
+- **Host & Port**: Connect to any SMTP server
 - **Security**: Support for SSL/TLS encryption
 - **Authentication**: Username and password with app password support
 - **Custom sender**: Set your own "From" name and email address
+
+#### Resend
+Use the [Resend](https://resend.com) API for reliable transactional email delivery — no SMTP credentials required:
+- **API Key**: Generate one at [resend.com/api-keys](https://resend.com/api-keys)
+- **Verified sender**: From address must be a verified domain or address in your Resend account
+- **Custom sender**: Set your own "From" name and email address
+- **Automatic fallback** to PHP mail() if the API call fails
 
 ### 🐛 Debug & Troubleshooting
 - **Debug logging**: Track email delivery and plugin events
@@ -118,6 +127,12 @@ Target:   https://example.com/very-long-url-here
 - **Automatic fallback** to PHP mail() if SMTP fails
 - **Detailed logging** for troubleshooting connection issues
 
+### Resend API Support
+- **Zero-config delivery** — just an API key and a verified sender address
+- **JSON over HTTPS** — no socket handling, no STARTTLS negotiation
+- **Automatic fallback** to PHP mail() if the API call fails
+- **Logged responses** for troubleshooting
+
 ---
 
 ## 🌐 Translation
@@ -136,7 +151,7 @@ You can contribute new translations via `.po`/`.mo` files inside the `languages/
 - **CSRF protection** with WordPress-style nonces
 - **Session-based authentication** with automatic logout
 - **Signed cookie fallback** to prevent authentication loops on some shared-hosting setups
-- **Encoded SMTP passwords** for secure storage
+- **Encoded SMTP passwords and Resend API keys** for secure storage
 - **Input validation** and sanitization throughout
 
 ---

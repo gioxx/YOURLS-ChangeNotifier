@@ -1,15 +1,11 @@
 function toggleSmtp() {
     const selectedMethod = document.querySelector('input[name="use_smtp"]:checked');
-    const smtpSettings = document.getElementById('smtp-settings');
-    if (!selectedMethod || !smtpSettings) {
-        return;
-    }
+    const smtpSettings   = document.getElementById('smtp-settings');
+    const resendSettings = document.getElementById('resend-settings');
+    if (!selectedMethod || !smtpSettings || !resendSettings) return;
 
-    if (selectedMethod.value === '1') {
-        smtpSettings.classList.remove('smtp-disabled');
-    } else {
-        smtpSettings.classList.add('smtp-disabled');
-    }
+    smtpSettings.classList.toggle('smtp-disabled',   selectedMethod.value !== '1');
+    resendSettings.classList.toggle('smtp-disabled', selectedMethod.value !== '2');
 }
 
 function toggleSmtpAuth() {

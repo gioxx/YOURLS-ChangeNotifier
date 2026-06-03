@@ -1,0 +1,19 @@
+# YOURLS Change Notifier
+# Copyright (C) 2024 Gioxx
+# This file is distributed under the same license as the YOURLS Change Notifier plugin.
+# Gioxx <giovanni@solone.it>, 2024.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: YOURLS Change Notifier 1.3.0\n"
+"Report-Msgid-Bugs-To: https://github.com/gioxx/YOURLS-ChangeNotifier/issues\n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 3.x\n"
+"X-Domain: yourls-change-notifier\n"
