@@ -12,6 +12,7 @@ function ynm_get_update_info(): array {
     $cache_key = 'ynm_update_cache';
     $cached    = yourls_get_option($cache_key);
     if (is_array($cached) && isset($cached['checked_at']) && (time() - (int)$cached['checked_at']) < 43200) {
+        $cached['update_available'] = version_compare($cached['latest_version'] ?? '', YNM_VERSION, '>');
         $memo = $cached;
         return $memo;
     }
@@ -33,12 +34,11 @@ function ynm_get_update_info(): array {
 
     $data = json_decode($body, true);
     if (is_array($data) && isset($data['tag_name'])) {
-        $latest = ltrim((string)$data['tag_name'], 'v');
-        $info['latest_version']   = $latest;
-        $info['update_available'] = version_compare($latest, YNM_VERSION, '>');
+        $info['latest_version'] = ltrim((string)$data['tag_name'], 'v');
     }
 
     yourls_update_option($cache_key, $info);
+    $info['update_available'] = version_compare($info['latest_version'], YNM_VERSION, '>');
     $memo = $info;
     return $memo;
 }

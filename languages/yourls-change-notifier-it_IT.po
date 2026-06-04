@@ -1,0 +1,344 @@
+# YOURLS Change Notifier - Italian translation
+# Copyright (C) 2024 Gioxx
+# This file is distributed under the same license as the YOURLS Change Notifier plugin.
+# Gioxx <giovanni@solone.it>, 2024.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: YOURLS Change Notifier 1.3.2\n"
+"Report-Msgid-Bugs-To: https://github.com/gioxx/YOURLS-ChangeNotifier/issues\n"
+"POT-Creation-Date: 2026-06-04 00:00+0000\n"
+"PO-Revision-Date: 2026-06-04 00:00+0000\n"
+"Last-Translator: Gioxx <giovanni@solone.it>\n"
+"Language-Team: Italian\n"
+"Language: it_IT\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 3.x\n"
+"X-Domain: yourls-change-notifier\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "(empties the log file, does not delete it)"
+msgstr "(svuota il file di log, non lo elimina)"
+
+msgid "A new version of YOURLS Change Notifier is available: "
+msgstr "È disponibile una nuova versione di YOURLS Change Notifier: "
+
+msgid "Access granted."
+msgstr "Accesso consentito."
+
+msgid "Access Settings"
+msgstr "Accedi alle impostazioni"
+
+msgid "Admin password"
+msgstr "Password amministratore"
+
+msgid "Admin password has been reset. You will need to set it up again on next page load."
+msgstr "La password amministratore è stata reimpostata. Sarà necessario configurarla di nuovo al prossimo caricamento della pagina."
+
+msgid "Admin password reset completed. Configure email, send and confirm a test email, then set a new password."
+msgstr "Reimpostazione della password amministratore completata. Configura l'email, invia e conferma una email di test, poi imposta una nuova password."
+
+msgid "Advanced Settings"
+msgstr "Impostazioni avanzate"
+
+msgid "All settings have been reset to defaults. Admin password was preserved."
+msgstr "Tutte le impostazioni sono state ripristinate ai valori predefiniti. La password amministratore è stata mantenuta."
+
+msgid "Are you sure you want to reset all settings to defaults? This action cannot be undone."
+msgstr "Sei sicuro di voler ripristinare tutte le impostazioni ai valori predefiniti? Questa azione non può essere annullata."
+
+msgid "Are you sure you want to reset the admin password? You will be logged out immediately and will need to set up a new password."
+msgstr "Sei sicuro di voler reimpostare la password amministratore? Verrai disconnesso immediatamente e dovrai configurare una nuova password."
+
+msgid "At least one successful test email sent"
+msgstr "Almeno una email di test inviata con successo"
+
+msgid "At least one test email delivery confirmed via link click"
+msgstr "Almeno una consegna di email di test confermata tramite clic sul link"
+
+msgid "At least one valid recipient email configured"
+msgstr "Almeno un indirizzo email destinatario valido configurato"
+
+msgid "At least one valid recipient is required while password protection is active."
+msgstr "È richiesto almeno un destinatario valido mentre la protezione con password è attiva."
+
+msgid "Authentication"
+msgstr "Autenticazione"
+
+msgid "Authentication Required"
+msgstr "Autenticazione richiesta"
+
+msgid "Basic Settings"
+msgstr "Impostazioni di base"
+
+msgid "Before enabling password protection, add at least one recipient, send a test email, and confirm delivery from the email link."
+msgstr "Prima di abilitare la protezione con password, aggiungi almeno un destinatario, invia una email di test e conferma la consegna tramite il link nell'email."
+
+msgid "Cannot generate a secure confirmation link on this server."
+msgstr "Impossibile generare un link di conferma sicuro su questo server."
+
+msgid "Change Admin Password"
+msgstr "Cambia password amministratore"
+
+msgid "Clear log"
+msgstr "Svuota log"
+
+msgid "Create"
+msgstr "Creazione"
+
+msgid "Danger Zone"
+msgstr "Zona pericolosa"
+
+msgid "Debug Log"
+msgstr "Log di debug"
+
+msgid "Debug log file is writable."
+msgstr "Il file di log di debug è scrivibile."
+
+msgid "Debug log file will be created on first use."
+msgstr "Il file di log di debug verrà creato al primo utilizzo."
+
+msgid "Debug logging is active. The log file will be automatically rotated when it exceeds 5MB."
+msgstr "Il log di debug è attivo. Il file di log verrà ruotato automaticamente quando supera 5 MB."
+
+msgid "Debug Options"
+msgstr "Opzioni di debug"
+
+msgid "Delete"
+msgstr "Eliminazione"
+
+msgid "Delivery confirmation link expired. Send a new test email and click its confirmation link."
+msgstr "Il link di conferma della consegna è scaduto. Invia una nuova email di test e clicca il suo link di conferma."
+
+msgid "Delivery confirmation pending. Click the link in the test email before"
+msgstr "Conferma della consegna in attesa. Clicca il link nell'email di test entro"
+
+msgid "Edit"
+msgstr "Modifica"
+
+msgid "Email address that will appear as sender"
+msgstr "Indirizzo email che apparirà come mittente"
+
+msgid "Email Configuration"
+msgstr "Configurazione email"
+
+msgid "Email Method"
+msgstr "Metodo di invio email"
+
+msgid "Enable debug logging"
+msgstr "Abilita log di debug"
+
+msgid "Enter admin password (min 6 chars)"
+msgstr "Inserisci la password amministratore (min. 6 caratteri)"
+
+msgid "Enter new password only if you want to change it (minimum 6 characters)"
+msgstr "Inserisci la nuova password solo se vuoi cambiarla (minimo 6 caratteri)"
+
+msgid "Example:"
+msgstr "Esempio:"
+
+msgid "File size: "
+msgstr "Dimensione file: "
+
+msgid "Forgot password? Send reset link"
+msgstr "Password dimenticata? Invia link di ripristino"
+
+msgid "From Email Address"
+msgstr "Indirizzo email mittente"
+
+msgid "From Name"
+msgstr "Nome mittente"
+
+msgid "Get your API key from"
+msgstr "Ottieni la tua API key da"
+
+msgid "Initial Setup Required"
+msgstr "Configurazione iniziale richiesta"
+
+msgid "Invalid password."
+msgstr "Password non valida."
+
+msgid "key saved"
+msgstr "chiave salvata"
+
+msgid "Last delivery confirmation:"
+msgstr "Ultima conferma di consegna:"
+
+msgid "Last successful test:"
+msgstr "Ultimo test riuscito:"
+
+msgid "Leave empty to keep current"
+msgstr "Lascia vuoto per mantenere l'attuale"
+
+msgid "Leave empty to keep current password"
+msgstr "Lascia vuoto per mantenere la password attuale"
+
+msgid "Logged out successfully."
+msgstr "Disconnessione avvenuta con successo."
+
+msgid "Logout from Change Notifier"
+msgstr "Esci da Change Notifier"
+
+msgid "Manage notifications"
+msgstr "Gestisci notifiche"
+
+msgid "Must be a verified sender address or domain in your Resend account"
+msgstr "Deve essere un indirizzo o dominio mittente verificato nel tuo account Resend"
+
+msgid "No confirmed delivery yet. Send a test email and click the confirmation link to unlock password protection."
+msgstr "Nessuna consegna confermata. Invia una email di test e clicca il link di conferma per sbloccare la protezione con password."
+
+msgid "No debug log found yet. It will be created when the first event occurs."
+msgstr "Nessun log di debug trovato. Verrà creato al primo evento."
+
+msgid "No successful test has been recorded yet."
+msgstr "Nessun test riuscito registrato finora."
+
+msgid "None"
+msgstr "Nessuna"
+
+msgid "Notify on"
+msgstr "Notifica per"
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Password must be at least 6 characters long."
+msgstr "La password deve essere lunga almeno 6 caratteri."
+
+msgid "Password protection available after initial configuration"
+msgstr "Protezione con password disponibile dopo la configurazione iniziale"
+
+msgid "Password protection is active but no valid recipient email is configured. Saving recipient settings is blocked until at least one valid recipient is provided."
+msgstr "La protezione con password è attiva ma non è configurato nessun destinatario valido. Il salvataggio delle impostazioni destinatari è bloccato finché non viene fornito almeno un destinatario valido."
+
+msgid "Password recovery is not available on this server."
+msgstr "Il recupero password non è disponibile su questo server."
+
+msgid "Password recovery is unavailable: no valid recipient email configured."
+msgstr "Il recupero password non è disponibile: nessun indirizzo email destinatario valido configurato."
+
+msgid "Password reset link sent to configured recipients."
+msgstr "Link di ripristino password inviato ai destinatari configurati."
+
+msgid "Please enter the admin password to access plugin settings:"
+msgstr "Inserisci la password amministratore per accedere alle impostazioni del plugin:"
+
+msgid "Please set an admin password to protect plugin settings:"
+msgstr "Imposta una password amministratore per proteggere le impostazioni del plugin:"
+
+msgid "Please set at least one recipient, then save settings and try again."
+msgstr "Imposta almeno un destinatario, salva le impostazioni e riprova."
+
+msgid "Plugin not initialized."
+msgstr "Plugin non inizializzato."
+
+msgid "Port"
+msgstr "Porta"
+
+msgid "Recipients (comma-separated)"
+msgstr "Destinatari (separati da virgola)"
+
+msgid "Recipients changed since the test email was sent. Please send and confirm a new test email."
+msgstr "I destinatari sono cambiati dall'invio dell'email di test. Invia e conferma una nuova email di test."
+
+msgid "Require authentication"
+msgstr "Richiedi autenticazione"
+
+msgid "Resend API Key"
+msgstr "API Key Resend"
+
+msgid "Reset Admin Password"
+msgstr "Reimposta password amministratore"
+
+msgid "Reset All Settings"
+msgstr "Reimposta tutte le impostazioni"
+
+msgid "Reset link is invalid or expired."
+msgstr "Il link di ripristino non è valido o è scaduto."
+
+msgid "Reset Password"
+msgstr "Reimposta password"
+
+msgid "Reset to Defaults"
+msgstr "Ripristina valori predefiniti"
+
+msgid "Save Advanced Settings"
+msgstr "Salva impostazioni avanzate"
+
+msgid "Save Basic Settings"
+msgstr "Salva impostazioni di base"
+
+msgid "Save Email Settings"
+msgstr "Salva impostazioni email"
+
+msgid "Security"
+msgstr "Sicurezza"
+
+msgid "Send test email"
+msgstr "Invia email di test"
+
+msgid "Sends to all configured recipients using "
+msgstr "Invia a tutti i destinatari configurati tramite "
+
+msgid "Set Password & Continue"
+msgstr "Imposta password e continua"
+
+msgid "Settings saved."
+msgstr "Impostazioni salvate."
+
+msgid "Setup completed! You can now configure the plugin."
+msgstr "Configurazione completata! Ora puoi configurare il plugin."
+
+msgid "SMTP Host"
+msgstr "Host SMTP"
+
+msgid "Subject prefix"
+msgstr "Prefisso oggetto"
+
+msgid "Test confirmation link is invalid or expired. Please send a new test email."
+msgstr "Il link di conferma del test non è valido o è scaduto. Invia una nuova email di test."
+
+msgid "Test Email"
+msgstr "Email di test"
+
+msgid "Test email delivery confirmed. Password protection can now be enabled."
+msgstr "Consegna dell'email di test confermata. La protezione con password può ora essere abilitata."
+
+msgid "This action will reset ALL plugin settings to their default values. Your admin password will be preserved, but all other configurations (recipients, SMTP settings, debug options) will be lost."
+msgstr "Questa azione ripristinerà TUTTE le impostazioni del plugin ai valori predefiniti. La password amministratore verrà mantenuta, ma tutte le altre configurazioni (destinatari, impostazioni SMTP, opzioni di debug) andranno perse."
+
+msgid "This will completely remove the admin password. You will be logged out and will need to set up a new password on the next page load."
+msgstr "Questo rimuoverà completamente la password amministratore. Verrai disconnesso e dovrai configurare una nuova password al prossimo caricamento della pagina."
+
+msgid "To avoid lockout, password protection will be enabled only after you configure at least one valid recipient, send a test email, and confirm delivery using the confirmation link from that email."
+msgstr "Per evitare il blocco dell'accesso, la protezione con password sarà abilitata solo dopo aver configurato almeno un destinatario valido, inviato una email di test e confermato la consegna tramite il link di conferma nell'email."
+
+msgid "Use app passwords for Gmail/Outlook"
+msgstr "Usa le password per le app per Gmail/Outlook"
+
+msgid "Use PHP mail() function"
+msgstr "Usa la funzione PHP mail()"
+
+msgid "Use Resend"
+msgstr "Usa Resend"
+
+msgid "Use SMTP server"
+msgstr "Usa server SMTP"
+
+msgid "Username"
+msgstr "Nome utente"
+
+msgid "Version: "
+msgstr "Versione: "
+
+msgid "View details on GitHub"
+msgstr "Visualizza i dettagli su GitHub"
+
+msgid "Warning: Cannot write to debug log file. Check directory permissions or create debug.log file into plugin directory and change permissions (chmod 666)."
+msgstr "Attenzione: impossibile scrivere nel file di log di debug. Controlla i permessi della directory oppure crea il file debug.log nella directory del plugin e modifica i permessi (chmod 666)."
+
+msgid "YOURLS Change Notifier"
+msgstr "YOURLS Change Notifier"
