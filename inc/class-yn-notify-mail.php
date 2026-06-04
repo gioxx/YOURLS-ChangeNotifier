@@ -964,20 +964,20 @@ class YN_Notify_Mail {
         // Debug log viewer
         if ($s['debug_enabled']) {
             echo '<div class="form-section">';
-            echo '<h3>🐛 Debug Log</h3>';
+            echo '<h3>🐛 '.yourls__('Debug Log', YNM_DOMAIN).'</h3>';
             $debug_file = dirname(__DIR__) . '/debug.log';
             if (file_exists($debug_file)) {
                 $file_size = filesize($debug_file);
                 $size_mb = round($file_size / 1024 / 1024, 2);
                 echo '<div class="muted">'.yourls__('File size: ', YNM_DOMAIN).$size_mb.' MB</div>';
-                
+
                 $content = file_get_contents($debug_file);
                 echo '<textarea readonly class="ynm-debug-textarea">';
                 echo htmlspecialchars($content);
                 echo '</textarea>';
-                echo '<p><a href="'.yourls_admin_url('plugins.php?page=yn-change-notifier&clear_debug=1').'">Clear log</a> (empties the log file, does not delete it)</p>';
+                echo '<p><a href="'.yourls_admin_url('plugins.php?page=yn-change-notifier&clear_debug=1').'">'.yourls__('Clear log', YNM_DOMAIN).'</a> '.yourls__('(empties the log file, does not delete it)', YNM_DOMAIN).'</p>';
             } else {
-                echo '<p>No debug log found yet. It will be created when the first event occurs.</p>';
+                echo '<p>'.yourls__('No debug log found yet. It will be created when the first event occurs.', YNM_DOMAIN).'</p>';
             }
             echo '</div>';
         }

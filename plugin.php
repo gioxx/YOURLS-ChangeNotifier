@@ -3,7 +3,7 @@
 Plugin Name: YOURLS Change Notifier
 Plugin URI: https://github.com/gioxx/YOURLS-ChangeNotifier
 Description: Send email notifications when a short URL is created, edited, or deleted.
-Version: 1.3.0
+Version: 1.3.1
 Author: Gioxx
 Author URI: https://gioxx.org
 Text Domain: yourls-change-notifier
@@ -12,7 +12,7 @@ Domain Path: /languages
 
 if (!defined('YOURLS_ABSPATH')) die();
 
-define('YNM_VERSION',    '1.3.0');
+define('YNM_VERSION',    '1.3.1');
 define('YNM_OPT_KEY',    'yn_change_notifier_settings');
 define('YNM_AUTH_OPT_KEY','yn_change_notifier_auth_sessions');
 define('YNM_DOMAIN',     'yourls-change-notifier');

@@ -5,9 +5,9 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: YOURLS Change Notifier 1.3.0\n"
+"Project-Id-Version: YOURLS Change Notifier 1.3.1\n"
 "Report-Msgid-Bugs-To: https://github.com/gioxx/YOURLS-ChangeNotifier/issues\n"
-"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"POT-Creation-Date: 2026-06-04 00:00+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,3 +17,327 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: Poedit 3.x\n"
 "X-Domain: yourls-change-notifier\n"
+
+msgid "(empties the log file, does not delete it)"
+msgstr ""
+
+msgid "A new version of YOURLS Change Notifier is available: "
+msgstr ""
+
+msgid "Access granted."
+msgstr ""
+
+msgid "Access Settings"
+msgstr ""
+
+msgid "Admin password"
+msgstr ""
+
+msgid "Admin password has been reset. You will need to set it up again on next page load."
+msgstr ""
+
+msgid "Admin password reset completed. Configure email, send and confirm a test email, then set a new password."
+msgstr ""
+
+msgid "Advanced Settings"
+msgstr ""
+
+msgid "All settings have been reset to defaults. Admin password was preserved."
+msgstr ""
+
+msgid "Are you sure you want to reset all settings to defaults? This action cannot be undone."
+msgstr ""
+
+msgid "Are you sure you want to reset the admin password? You will be logged out immediately and will need to set up a new password."
+msgstr ""
+
+msgid "At least one successful test email sent"
+msgstr ""
+
+msgid "At least one test email delivery confirmed via link click"
+msgstr ""
+
+msgid "At least one valid recipient email configured"
+msgstr ""
+
+msgid "At least one valid recipient is required while password protection is active."
+msgstr ""
+
+msgid "Authentication"
+msgstr ""
+
+msgid "Authentication Required"
+msgstr ""
+
+msgid "Basic Settings"
+msgstr ""
+
+msgid "Before enabling password protection, add at least one recipient, send a test email, and confirm delivery from the email link."
+msgstr ""
+
+msgid "Cannot generate a secure confirmation link on this server."
+msgstr ""
+
+msgid "Change Admin Password"
+msgstr ""
+
+msgid "Clear log"
+msgstr ""
+
+msgid "Create"
+msgstr ""
+
+msgid "Danger Zone"
+msgstr ""
+
+msgid "Debug Log"
+msgstr ""
+
+msgid "Debug log file is writable."
+msgstr ""
+
+msgid "Debug log file will be created on first use."
+msgstr ""
+
+msgid "Debug logging is active. The log file will be automatically rotated when it exceeds 5MB."
+msgstr ""
+
+msgid "Debug Options"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Delivery confirmation link expired. Send a new test email and click its confirmation link."
+msgstr ""
+
+msgid "Delivery confirmation pending. Click the link in the test email before"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Email address that will appear as sender"
+msgstr ""
+
+msgid "Email Configuration"
+msgstr ""
+
+msgid "Email Method"
+msgstr ""
+
+msgid "Enable debug logging"
+msgstr ""
+
+msgid "Enter admin password (min 6 chars)"
+msgstr ""
+
+msgid "Enter new password only if you want to change it (minimum 6 characters)"
+msgstr ""
+
+msgid "Example:"
+msgstr ""
+
+msgid "File size: "
+msgstr ""
+
+msgid "Forgot password? Send reset link"
+msgstr ""
+
+msgid "From Email Address"
+msgstr ""
+
+msgid "From Name"
+msgstr ""
+
+msgid "Get your API key from"
+msgstr ""
+
+msgid "Initial Setup Required"
+msgstr ""
+
+msgid "Invalid password."
+msgstr ""
+
+msgid "key saved"
+msgstr ""
+
+msgid "Last delivery confirmation:"
+msgstr ""
+
+msgid "Last successful test:"
+msgstr ""
+
+msgid "Leave empty to keep current"
+msgstr ""
+
+msgid "Leave empty to keep current password"
+msgstr ""
+
+msgid "Logged out successfully."
+msgstr ""
+
+msgid "Logout from Change Notifier"
+msgstr ""
+
+msgid "Manage notifications"
+msgstr ""
+
+msgid "Must be a verified sender address or domain in your Resend account"
+msgstr ""
+
+msgid "No confirmed delivery yet. Send a test email and click the confirmation link to unlock password protection."
+msgstr ""
+
+msgid "No debug log found yet. It will be created when the first event occurs."
+msgstr ""
+
+msgid "No successful test has been recorded yet."
+msgstr ""
+
+msgid "None"
+msgstr ""
+
+msgid "Notify on"
+msgstr ""
+
+msgid "Password"
+msgstr ""
+
+msgid "Password must be at least 6 characters long."
+msgstr ""
+
+msgid "Password protection available after initial configuration"
+msgstr ""
+
+msgid "Password protection is active but no valid recipient email is configured. Saving recipient settings is blocked until at least one valid recipient is provided."
+msgstr ""
+
+msgid "Password recovery is not available on this server."
+msgstr ""
+
+msgid "Password recovery is unavailable: no valid recipient email configured."
+msgstr ""
+
+msgid "Password reset link sent to configured recipients."
+msgstr ""
+
+msgid "Please enter the admin password to access plugin settings:"
+msgstr ""
+
+msgid "Please set an admin password to protect plugin settings:"
+msgstr ""
+
+msgid "Please set at least one recipient, then save settings and try again."
+msgstr ""
+
+msgid "Plugin not initialized."
+msgstr ""
+
+msgid "Port"
+msgstr ""
+
+msgid "Recipients (comma-separated)"
+msgstr ""
+
+msgid "Recipients changed since the test email was sent. Please send and confirm a new test email."
+msgstr ""
+
+msgid "Require authentication"
+msgstr ""
+
+msgid "Resend API Key"
+msgstr ""
+
+msgid "Reset Admin Password"
+msgstr ""
+
+msgid "Reset All Settings"
+msgstr ""
+
+msgid "Reset link is invalid or expired."
+msgstr ""
+
+msgid "Reset Password"
+msgstr ""
+
+msgid "Reset to Defaults"
+msgstr ""
+
+msgid "Save Advanced Settings"
+msgstr ""
+
+msgid "Save Basic Settings"
+msgstr ""
+
+msgid "Save Email Settings"
+msgstr ""
+
+msgid "Security"
+msgstr ""
+
+msgid "Send test email"
+msgstr ""
+
+msgid "Sends to all configured recipients using "
+msgstr ""
+
+msgid "Set Password & Continue"
+msgstr ""
+
+msgid "Settings saved."
+msgstr ""
+
+msgid "Setup completed! You can now configure the plugin."
+msgstr ""
+
+msgid "SMTP Host"
+msgstr ""
+
+msgid "Subject prefix"
+msgstr ""
+
+msgid "Test confirmation link is invalid or expired. Please send a new test email."
+msgstr ""
+
+msgid "Test Email"
+msgstr ""
+
+msgid "Test email delivery confirmed. Password protection can now be enabled."
+msgstr ""
+
+msgid "This action will reset ALL plugin settings to their default values. Your admin password will be preserved, but all other configurations (recipients, SMTP settings, debug options) will be lost."
+msgstr ""
+
+msgid "This will completely remove the admin password. You will be logged out and will need to set up a new password on the next page load."
+msgstr ""
+
+msgid "To avoid lockout, password protection will be enabled only after you configure at least one valid recipient, send a test email, and confirm delivery using the confirmation link from that email."
+msgstr ""
+
+msgid "Use app passwords for Gmail/Outlook"
+msgstr ""
+
+msgid "Use PHP mail() function"
+msgstr ""
+
+msgid "Use Resend"
+msgstr ""
+
+msgid "Use SMTP server"
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Version: "
+msgstr ""
+
+msgid "View details on GitHub"
+msgstr ""
+
+msgid "Warning: Cannot write to debug log file. Check directory permissions or create debug.log file into plugin directory and change permissions (chmod 666)."
+msgstr ""
+
+msgid "YOURLS Change Notifier"
+msgstr ""
