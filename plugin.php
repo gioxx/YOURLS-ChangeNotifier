@@ -3,7 +3,7 @@
 Plugin Name: YOURLS Change Notifier
 Plugin URI: https://github.com/gioxx/YOURLS-ChangeNotifier
 Description: Send email notifications when a short URL is created, edited, or deleted.
-Version: 1.3.2
+Version: 1.3.3
 Author: Gioxx
 Author URI: https://gioxx.org
 Text Domain: yourls-change-notifier
@@ -12,7 +12,7 @@ Domain Path: /languages
 
 if (!defined('YOURLS_ABSPATH')) die();
 
-define('YNM_VERSION',    '1.3.2');
+define('YNM_VERSION',    '1.3.3');
 define('YNM_OPT_KEY',    'yn_change_notifier_settings');
 define('YNM_AUTH_OPT_KEY','yn_change_notifier_auth_sessions');
 define('YNM_DOMAIN',     'yourls-change-notifier');
@@ -29,6 +29,8 @@ $GLOBALS['__ynm_instance'] = null;
 
 yourls_add_action('plugins_loaded', 'ynm_boot');
 function ynm_boot() {
+    ynm_load_textdomain();
+
     $GLOBALS['__ynm_instance'] = new YN_Notify_Mail();
 
     yourls_register_plugin_page(
@@ -36,8 +38,6 @@ function ynm_boot() {
         yourls__('Manage notifications', YNM_DOMAIN),
         'ynm_render_plugin_page'
     );
-
-    ynm_load_textdomain();
 }
 
 function ynm_load_textdomain() {
@@ -69,7 +69,7 @@ function ynm_render_footer(): string {
     $html .= '<a href="https://github.com/gioxx/YOURLS-ChangeNotifier" target="_blank" rel="noopener noreferrer">';
     $html .= '<img src="https://github.githubassets.com/favicons/favicon.png" class="github-icon" alt="GitHub Icon" />GitHub</a>';
     $html .= '</span>';
-    $html .= '<a href="#" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">&#8593; Back to top</a>';
+    $html .= '<a href="#" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">&#8593; '.yourls__('Back to top', YNM_DOMAIN).'</a>';
     $html .= '</div>';
     $html .= '❤️ Lovingly developed by the usually-on-vacation brain cell of ';
     $html .= '<a href="https://github.com/gioxx" target="_blank" rel="noopener noreferrer">Gioxx</a> - <a href="https://gioxx.org" target="_blank" rel="noopener noreferrer">Gioxx\'s Wall</a>';
