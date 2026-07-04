@@ -5,6 +5,7 @@ Never miss a creation, edit, or deletion again — whether it happens through ad
 
 [![Latest Release](https://img.shields.io/github/v/release/gioxx/YOURLS-ChangeNotifier)](https://github.com/gioxx/YOURLS-ChangeNotifier/releases)
 [![License](https://img.shields.io/github/license/gioxx/YOURLS-ChangeNotifier)](LICENSE)
+[![Listed in Awesome YOURLS!](https://img.shields.io/badge/Awesome-YOURLS-C5A3BE)](https://github.com/YOURLS/awesome)
 
 ---
 
@@ -174,7 +175,7 @@ This plugin is licensed under the [MIT License](LICENSE).
 
 ## 💬 About
 
-Lovingly developed by the usually-on-vacation brain cell of [Gioxx](https://github.com/gioxx), with extensive assistance from Claude AI for advanced features, SMTP implementation, and debugging capabilities.
+Lovingly developed by the usually-on-vacation brain cell of [Gioxx](https://github.com/gioxx).
 
 ---
 
