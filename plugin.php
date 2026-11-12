@@ -64,7 +64,7 @@ function ynm_render_footer(): string {
     $html  = '<div class="plugin-footer">';
     $html .= '<div class="plugin-footer-top">';
     $html .= '<span>';
-    $html .= '<a href="https://yourls.gioxx.org/plugins/change-notifier" target="_blank" rel="noopener noreferrer">🔔 YOURLS Change Notifier</a>';
+    $html .= '<a href="https://yourls.gxware.org/plugins/change-notifier" target="_blank" rel="noopener noreferrer">🔔 YOURLS Change Notifier</a>';
     $html .= ' &nbsp;·&nbsp; ';
     $html .= '<a href="https://github.com/gioxx/YOURLS-ChangeNotifier" target="_blank" rel="noopener noreferrer">';
     $html .= '<img src="https://github.githubassets.com/favicons/favicon.png" class="github-icon" alt="GitHub Icon" />GitHub</a>';
